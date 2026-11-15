@@ -39,7 +39,12 @@ function slotsFromArtifact(): Record<string, bigint> {
     }
     for (const value of Object.values(rec)) walk(value);
   };
-  walk((artifact as { outputs?: unknown }).outputs);
+  // A bundler may wrap a JSON default export, so accept both shapes.
+  const rec = artifact as { outputs?: unknown; default?: { outputs?: unknown } };
+  walk(rec.outputs ?? rec.default?.outputs);
+  if (Object.keys(out).length < 5) {
+    throw new Error("storage layout missing from the compiled artifact");
+  }
   return out;
 }
 

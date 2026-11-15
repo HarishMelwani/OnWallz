@@ -1,0 +1,33 @@
+export type Page = {
+  handle: string;
+  display: string;
+  /** The wallet address that registered this page. Never shown as "who wrote". */
+  owner: string;
+  createdAt: number;
+};
+
+export type Post = {
+  id: string; // wall + index, like the contract
+  wall: string;
+  index: number;
+  text: string;
+  ts: number;
+  /** 0 = anonymous, 1 = the writer chose to show a self-declared handle. */
+  mode: 0 | 1;
+  /** Only present when mode is 1. Never a wallet address. */
+  tag?: string | null;
+  /** Whether the local user wrote this. Replaces storing writer addresses. */
+  mine?: boolean;
+  /** Tombstoned by its author. The text is retained on chain but not shown. */
+  deleted?: boolean;
+  replied: boolean;
+  replyText?: string;
+  repliedAt?: number;
+};
+
+export type Snapshot = {
+  me: { handle: string; id: string; address?: string } | null;
+  pages: Record<string, Page>;
+  posts: Post[];
+  spentBonus: string[]; // post ids already used as a bonus
+};

@@ -1,0 +1,256 @@
+/**
+ * Nulo wallet connection.
+ *
+ * Nulo exposes the canonical `@aztec-labs/wallet-sdk` surface, so this is the
+ * standard handshake every Aztec dApp performs:
+ *
+ *   1. WalletManager.configure -> getAvailableWallets (discovers the extension)
+ *   2. provider.establishSecureChannel(appId) -> PendingConnection (user allows)
+ *   3. pending.confirm() -> Wallet (user verifies the connection hash)
+ *   4. wallet.requestCapabilities(manifest) -> granted accounts
+ *
+ * Accounts arrive from the capability grant, not from the connect call.
+ * Every step reports progress so a stuck handshake is visible, not silent.
+ */
+import { WalletManager, type WalletProvider } from "@aztec-labs/wallet-sdk/manager";
+import type { Wallet } from "@aztec-labs/aztec.js/wallet";
+import { Fr } from "@aztec-labs/foundation/curves/bn254";
+import { CHAIN_ID_OVERRIDE, VERSION_OVERRIDE } from "./config";
+
+export const APP_ID = "onwallz";
+const APP_VERSION = "0.1.0";
+const DISCOVERY_TIMEOUT = 8_000;
+
+export type WalletStatus =
+  | "idle"
+  | "discovering"
+  | "connecting"
+  | "awaiting-approval"
+  | "connected"
+  | "error";
+
+export type WalletState = {
+  status: WalletStatus;
+  address: string | null;
+  walletName: string | null;
+  error: string | null;
+};
+
+let wallet: Wallet | null = null;
+let provider: WalletProvider | null = null;
+let cancelDiscovery: (() => void) | null = null;
+
+export function getWallet(): Wallet | null {
+  return wallet;
+}
+
+const manifest = {
+  version: "1.0",
+  metadata: {
+    name: APP_ID,
+    version: APP_VERSION,
+    url: typeof window !== "undefined" ? window.location.origin : undefined,
+  },
+  capabilities: [
+    { type: "accounts", canGet: true, canCreateAuthWit: true },
+    { type: "transaction", scope: "*" },
+    { type: "contracts", contracts: "*", canRegister: true, canGetMetadata: true },
+    // Deploying means publishing a class, which is a separate grant from
+    // registering an instance: without it the wallet answers 4100.
+    { type: "contractClasses", classes: "*", canRegister: true, canGetMetadata: true },
+    { type: "simulation", transactions: { scope: "*" }, utilities: { scope: "*" } },
+  ],
+};
+
+type GrantedAccount = { address: string; name: string };
+
+/**
+ * The granted side of a capability response lists accounts as `{ alias, item }`,
+ * where `item` is an `AztecAddress`. Older/looser shapes emit plain strings or
+ * `{ address }`. All of them are accepted here — reading only `.address` was
+ * why a successful grant looked like "no account shared".
+ */
+function addressOf(entry: unknown): string | null {
+  if (typeof entry === "string") return entry;
+  if (!entry || typeof entry !== "object") return null;
+  const e = entry as {
+    item?: unknown;
+    address?: unknown;
+    alias?: unknown;
+  };
+  for (const candidate of [e.item, e.address]) {
+    if (typeof candidate === "string" && candidate.length) return candidate;
+    if (candidate && typeof (candidate as { toString(): string }).toString === "function") {
+      const s = (candidate as { toString(): string }).toString();
+      if (s && s !== "[object Object]") return s;
+    }
+  }
+  return null;
+}
+
+function grantedAccounts(result: unknown): GrantedAccount[] {
+  const root = result as { granted?: unknown };
+  const granted = Array.isArray(root?.granted)
+    ? root.granted
+    : Array.isArray(result)
+      ? result
+      : [];
+
+  const out: GrantedAccount[] = [];
+  for (const cap of granted) {
+    const c = cap as { type?: string; accounts?: unknown[] };
+    if (c?.type !== "accounts" || !Array.isArray(c.accounts)) continue;
+    for (const entry of c.accounts) {
+      const address = addressOf(entry);
+      if (!address) continue;
+      const alias = (entry as { alias?: unknown })?.alias;
+      out.push({ address, name: typeof alias === "string" ? alias : "" });
+    }
+  }
+  return out;
+}
+
+/** The pair the wallet must match exactly. Missing values are an error, not a
+ *  reason to guess: a wrong chain silently connects to a contract that is not
+ *  there. */
+function configuredChainInfo(): { chainId: Fr; version: Fr } {
+  return {
+    chainId: chainField(CHAIN_ID_OVERRIDE, "VITE_CHAIN_ID"),
+    version: chainField(VERSION_OVERRIDE, "VITE_VERSION"),
+  };
+}
+
+function chainField(value: string, name: string): Fr {
+  if (!value) {
+    throw new Error(`${name} is not set — the wallet needs the exact chain to connect to`);
+  }
+  let big: bigint;
+  try {
+    big = BigInt(value.trim());
+  } catch {
+    throw new Error(`${name} must be a decimal or 0x-hex number, got "${value}"`);
+  }
+  return Fr.fromString(`0x${big.toString(16)}`);
+}
+
+function delay(ms: number): Promise<never | undefined> {
+  return new Promise((resolve) => setTimeout(() => resolve(undefined), ms));
+}
+
+/**
+ * Collect discovered wallets for a short window and prefer Nulo. Other Aztec
+ * wallets (Azguard, for instance) speak the same protocol, so taking whichever
+ * answers first would connect the wrong one.
+ */
+async function pickWallet(
+  discovery: { wallets: AsyncIterable<WalletProvider> },
+): Promise<WalletProvider | undefined> {
+  const candidates: WalletProvider[] = [];
+  const collect = (async () => {
+    try {
+      for await (const p of discovery.wallets) {
+        candidates.push(p);
+        if (/nulo/i.test(`${p.name} ${p.id}`)) return;
+      }
+    } catch {
+      // discovery cancelled or timed out
+    }
+  })();
+  await Promise.race([collect, delay(2_500)]);
+  if (candidates.length > 1) {
+    console.info("[onwallz] wallets found:", candidates.map((c) => c.name).join(", "));
+  }
+  return candidates.find((p) => /nulo/i.test(`${p.name} ${p.id}`)) ?? candidates[0];
+}
+
+let lastAccounts: GrantedAccount[] = [];
+
+export async function connect(
+  onState: (s: Partial<WalletState>) => void,
+): Promise<{ accounts: GrantedAccount[] } | { error: string }> {
+  if (wallet && lastAccounts.length) {
+    // already connected in this session
+    return { accounts: lastAccounts };
+  }
+
+  try {
+    onState({ status: "discovering", error: null, walletName: null });
+
+    const manager = WalletManager.configure({ extensions: { enabled: true } });
+    const chainInfo = configuredChainInfo();
+
+    const discovery = manager.getAvailableWallets({
+      chainInfo,
+      appId: APP_ID,
+      timeout: DISCOVERY_TIMEOUT,
+    });
+    cancelDiscovery = discovery.cancel;
+
+    console.info("[onwallz] looking for Nulo on chain", chainInfo.chainId.toString());
+    const found = await pickWallet(discovery as never);
+    console.info("[onwallz] discovery result:", found ? found.name : "nothing");
+    cancelDiscovery?.();
+    cancelDiscovery = null;
+
+    if (!found) {
+      const message =
+        "no wallet answered. is Nulo installed, enabled on this site, and unlocked?";
+      onState({ status: "error", error: message });
+      return { error: message };
+    }
+
+    onState({ status: "connecting", walletName: found.name ?? "wallet" });
+
+    console.info("[onwallz] opening secure channel to", found.name);
+    const pending = await found.establishSecureChannel(APP_ID);
+    onState({ status: "awaiting-approval" });
+
+    const connected = await pending.confirm();
+    wallet = connected;
+    provider = found;
+
+    console.info("[onwallz] connected, asking for accounts");
+    const granted = await connected.requestCapabilities(manifest as never);
+    console.info("[onwallz] capability grant:", granted);
+    const accounts = grantedAccounts(granted);
+
+    if (!accounts.length) {
+      const message =
+        "connected, but no account was shared. approve the account request in Nulo, then try again.";
+      onState({ status: "error", error: message });
+      return { error: message };
+    }
+
+    lastAccounts = accounts;
+    const address = accounts[0].address;
+    onState({
+      status: "connected",
+      address,
+      walletName: found.name ?? "wallet",
+      error: null,
+    });
+    return { accounts };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    onState({ status: "error", error: message });
+    return { error: message };
+  }
+}
+
+export async function disconnect(onState: (s: Partial<WalletState>) => void) {
+  try {
+    cancelDiscovery?.();
+  } catch {
+    // ignore
+  }
+  cancelDiscovery = null;
+  try {
+    await provider?.disconnect();
+  } catch {
+    // best effort
+  }
+  provider = null;
+  wallet = null;
+  lastAccounts = [];
+  onState({ status: "idle", address: null, walletName: null, error: null });
+}

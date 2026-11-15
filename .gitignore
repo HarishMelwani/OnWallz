@@ -1,0 +1,11 @@
+node_modules/
+dist/
+target/
+*.log
+.env.local
+.env.testnet
+.wallet/
+.wallet-testnet/
+fpc-artifact.json
+*.bak
+.DS_Store

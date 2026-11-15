@@ -1,0 +1,2 @@
+[workspace]
+members = ["onwallz_contract", "onwallz_test"]

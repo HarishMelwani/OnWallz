@@ -1,0 +1,94 @@
+import { useEffect, useState } from "react";
+import type { WalletState } from "../lib/wallet";
+import { Logo } from "./Logo";
+
+type Props = {
+  me: string | null;
+  wallet: WalletState;
+  onHome: () => void;
+  onConnect: () => void;
+  onDisconnect: () => void;
+};
+
+function short(addr: string) {
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+export function Topbar({ me, wallet, onHome, onConnect, onDisconnect }: Props) {
+  const [dark, setDark] = useState(
+    () => document.documentElement.dataset.theme === "dark",
+  );
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    localStorage.setItem("onwallz.theme", dark ? "dark" : "light");
+  }, [dark]);
+
+  const connected = wallet.status === "connected" && !!wallet.address;
+  const busy =
+    wallet.status === "discovering" ||
+    wallet.status === "connecting" ||
+    wallet.status === "awaiting-approval";
+
+  return (
+    <header className="topbar">
+      <a
+        href="#/"
+        className="wordmark"
+        onClick={(e) => {
+          e.preventDefault();
+          onHome();
+        }}
+      >
+        <Logo />
+        <span className="wordmark-text">
+          OnWallz<span className="dot">.</span>
+        </span>
+      </a>
+
+      <a className="btn ghost sm" href="#/feed" style={{ marginLeft: 8 }}>
+        feed
+      </a>
+
+
+
+      <span className="spacer" />
+
+      {me && <span className="chip mono">@{me}</span>}
+
+      {connected ? (
+        <span className="row" style={{ gap: 6 }}>
+          <span className="chip connected mono" title={wallet.address ?? undefined}>
+            <span className="dot" />
+            {short(wallet.address!)}
+          </span>
+          <button className="btn ghost sm" onClick={onDisconnect} title="disconnect this wallet">
+            disconnect
+          </button>
+        </span>
+      ) : busy ? (
+        <span className="chip mono muted">
+          <span className="dot pending" />
+          {wallet.status === "discovering"
+            ? "looking for Nulo…"
+            : wallet.status === "connecting"
+              ? "opening Nulo…"
+              : "approve in Nulo…"}
+        </span>
+      ) : (
+        <button className="btn sm" onClick={onConnect} title={wallet.error ?? "connect Nulo"}>
+          connect Nulo
+        </button>
+      )}
+
+      <button
+        className="btn ghost sm"
+        onClick={() => setDark(!dark)}
+        aria-label={dark ? "switch to light" : "switch to dark"}
+        title={dark ? "light" : "dark"}
+      >
+        {dark ? "☾" : "☀"}
+      </button>
+    </header>
+  );
+}

@@ -1,0 +1,422 @@
+/// OnWallz: public walls, private authors.
+///
+/// One page per person. Anyone may write on someone else's wall, at most once
+/// per day. When the wall owner replies to a post, the author of that post may
+/// write once more immediately - without the owner ever learning who that is.
+///
+/// How the author stays hidden:
+///   - `write` runs privately. The self-post check and the daily-limit nullifier
+///     are computed inside the proof, so neither becomes public information.
+///   - The enqueued public call `_publish` receives (wall, text, length, nonce,
+///     key). None of those is a person, and none can be turned back into one
+///     without the author's secret nullifier key.
+#[aztec::macros::aztec]
+pub contract OnWallz {
+    use aztec::{
+        keys::getters::get_public_keys,
+        macros::{
+            events::event,
+            functions::{external, initializer, only_self, view},
+            storage::storage,
+        },
+        protocol::{address::AztecAddress, hash::poseidon2_hash, traits::ToField},
+        state_vars::{Map, PublicImmutable, PublicMutable},
+    };
+
+    // Domain separators so a daily nullifier can never collide with a reply one.
+    global DOMAIN_DAILY: Field = 0x44415931;
+    global DOMAIN_REPLY: Field = 0x5245504c;
+    // Domain tag for deriving a wall id from an X username.
+    global DOMAIN_WALL: Field = 0x57414c4c;
+    // One claim per username, forever. Spent as a nullifier.
+    global DOMAIN_CLAIM: Field = 0x434c4149;
+
+    #[event]
+    struct PageCreated {
+        handle: Field,
+        owner: AztecAddress,
+    }
+
+    /// A wall post. Carries no author information.
+    #[event]
+    struct Posted {
+        wall: Field,
+        index: u32,
+        length: u16,
+        text: [Field; 3],
+    }
+
+    #[event]
+    struct Claimed {
+        wall: Field,
+    }
+
+    #[event]
+    struct Replied {
+        wall: Field,
+        post_id: Field,
+        text: Field,
+    }
+
+    /// A note withdrawn by its author. The text stays on chain.
+    #[event]
+    struct NoteTombstoned {
+        post_id: Field,
+    }
+
+    #[storage]
+    struct Storage<Context> {
+        exists: Map<Field, PublicMutable<bool, Context>, Context>,
+        // owner -> their handle. This is what makes a wall survive a cleared
+        // browser: the app asks the contract "which page is this address?"
+        handle_of: Map<AztecAddress, PublicMutable<Field, Context>, Context>,
+        owner_of: Map<Field, PublicImmutable<AztecAddress, Context>, Context>,
+        display: Map<Field, PublicImmutable<Field, Context>, Context>,
+        post_count: Map<Field, PublicMutable<u32, Context>, Context>,
+        post_text: Map<Field, PublicMutable<[Field; 3], Context>, Context>,
+        post_len: Map<Field, PublicMutable<u16, Context>, Context>,
+        // post id -> wall it was written on (lets a private fn check the bonus post)
+        post_wall: Map<Field, PublicImmutable<Field, Context>, Context>,
+        // post id -> public nonce (random, chosen by the author)
+        post_nonce: Map<Field, PublicImmutable<Field, Context>, Context>,
+        // post id -> H(author secret, wall, nonce). Only the author can reproduce it.
+        post_key: Map<Field, PublicImmutable<Field, Context>, Context>,
+        // post id -> has the wall owner replied?
+        // 0 = anonymous (tag 0), 1 = self-declared public identity (tag != 0).
+        post_mode: Map<Field, PublicImmutable<u8, Context>, Context>,
+        post_tag: Map<Field, PublicImmutable<Field, Context>, Context>,
+        // Global activity log: append-only, bounded reads for the feed.
+        activity_count: PublicMutable<u32, Context>,
+        activity_wall: Map<u32, PublicMutable<Field, Context>, Context>,
+        activity_post: Map<u32, PublicMutable<Field, Context>, Context>,
+        activity_index: Map<u32, PublicMutable<u32, Context>, Context>,
+        // Tombstones: content is never rewritten, only marked.
+        post_deleted: Map<Field, PublicImmutable<bool, Context>, Context>,
+        replied: Map<Field, PublicImmutable<bool, Context>, Context>,
+        // post id -> the owner's reply text
+        reply_text: Map<Field, PublicMutable<Field, Context>, Context>,
+    }
+
+    #[external("private")]
+    #[initializer]
+    fn constructor() {}
+
+    /// Create your page once. The handle must be free.
+    #[external("private")]
+    fn create_page(handle: Field, display: Field) {
+        assert(handle != 0, "handle required");
+        assert(display != 0, "display required");
+        let me = self.msg_sender();
+        self.enqueue(OnWallz::at(self.address)._create_page(handle, display, me));
+    }
+
+    #[external("public")]
+    #[only_self]
+    fn _create_page(handle: Field, display: Field, owner: AztecAddress) {
+        assert(!self.storage.exists.at(handle).read(), "handle already taken");
+        assert(owner.to_field() != 0, "owner required");
+        assert(self.storage.handle_of.at(owner).read() == 0, "this address already has a page");
+        self.storage.exists.at(handle).write(true);
+        self.storage.handle_of.at(owner).write(handle);
+        self.storage.owner_of.at(handle).initialize(owner);
+        self.storage.display.at(handle).initialize(display);
+        self.emit(PageCreated { handle, owner });
+    }
+
+    /// Open the wall for a normalised X username.
+    ///
+    /// The wall id is derived from the name itself, so @alice always maps to the
+    /// same wall and nobody can open a second wall under a different id for the
+    /// same handle.
+    #[external("private")]
+    fn open_wall(name: Field, len: u8, display: Field) {
+        assert(len > 0, "username required");
+        assert(len as u32 <= 15, "username too long");
+        let me = self.msg_sender();
+        let wall = poseidon2_hash([name, len as Field, DOMAIN_WALL]);
+        self.enqueue(OnWallz::at(self.address)._open(wall, display, me));
+    }
+
+    #[external("public")]
+    #[only_self]
+    fn _open(wall: Field, display: Field, owner: AztecAddress) {
+        assert(!self.storage.exists.at(wall).read(), "wall already open");
+        self.storage.exists.at(wall).write(true);
+        self.storage.owner_of.at(wall).initialize(owner);
+        self.storage.display.at(wall).initialize(display);
+        self.storage.handle_of.at(owner).write(wall);
+        self.emit(PageCreated { handle: wall, owner });
+    }
+
+    /// Claim an Onwallz username.
+    ///
+    /// MVP claim: it records that this account claimed this name. It is NOT proof of
+    /// ownership of the corresponding X account - that needs X OAuth later.
+    ///
+    /// Uniqueness is global and permanent: the claim spends a nullifier derived from
+    /// the wall id, so no second claim of the same name can ever succeed.
+    #[external("private")]
+    fn claim(name: Field, len: u8) {
+        assert(len > 0, "username required");
+        assert(len as u32 <= 15, "username too long");
+        let wall = poseidon2_hash([name, len as Field, DOMAIN_WALL]);
+        self.context.push_nullifier_unsafe(poseidon2_hash([wall, DOMAIN_CLAIM]));
+        self.enqueue(OnWallz::at(self.address)._claim(wall, self.msg_sender(), name));
+    }
+
+    #[external("public")]
+    #[only_self]
+    fn _claim(wall: Field, owner: AztecAddress, name: Field) {
+        assert(self.storage.exists.at(wall).read(), "nobody has written on this wall yet");
+        assert(!self.storage.owner_of.at(wall).is_initialized(), "username already claimed");
+        self.storage.owner_of.at(wall).initialize(owner);
+        self.storage.handle_of.at(owner).write(wall);
+        // Store the name itself: the wall id is a hash, and without this a
+        // claimed wall could never be shown as @name anywhere.
+        if !self.storage.display.at(wall).is_initialized() {
+            self.storage.display.at(wall).initialize(name);
+        }
+        self.emit(Claimed { wall });
+    }
+
+    /// Write on someone else's wall.
+    ///
+    /// Normal posts: `bonus_post_id = 0`, and the daily nullifier enforces one
+    /// post per person per wall per day.
+    ///
+    /// Bonus posts: pass the id of one of your own posts that the owner has
+    /// replied to. You prove - in zero knowledge - that you hold the secret
+    /// behind that post's reply key, which resets your window immediately.
+    #[external("private")]
+    fn write(
+        wall: Field,
+        text: [Field; 3],
+        length: u16,
+        nonce: Field,
+        bonus_post_id: Field,
+        mode: u8,
+        author_tag: Field,
+    ) {
+        assert(wall != 0, "wall required");
+        assert(nonce != 0, "nonce required");
+        assert(length <= 93, "text too long");
+        assert(mode <= 1, "bad identity mode");
+        // Anonymous posts must not carry a tag; public posts must.
+        if mode == 0 {
+            assert(author_tag == 0, "anonymous posts carry no tag");
+        } else {
+            assert(author_tag != 0, "public posts need a tag");
+        }
+
+        // Publishing is open: a wall is bootstrapped by the first message, so
+        // requiring a claim here would deadlock an empty contract. Ownership is
+        // what a claim grants, and claiming requires the wall to exist.
+        let me = self.msg_sender();
+
+        let secret = self.context.request_nhk_app(get_public_keys(me).npk_m_hash);
+
+        if bonus_post_id == 0 {
+            // One post per person, per wall, per day.
+            let day = self.context.get_anchor_block_header().timestamp() / 86400;
+            let limit = poseidon2_hash([secret, wall, day as Field, DOMAIN_DAILY]);
+            self.context.push_nullifier_unsafe(limit);
+        } else {
+            // The bonus post must live on this wall and must have been replied to.
+            let bonus_wall = self.storage.post_wall.at(bonus_post_id).read();
+            assert(bonus_wall == wall, "bonus post is on another wall");
+            assert(self.storage.replied.at(bonus_post_id).read(), "owner has not replied");
+
+            // Prove authorship of the replied post, in zero knowledge.
+            let bonus_nonce = self.storage.post_nonce.at(bonus_post_id).read();
+            let expected = poseidon2_hash([secret, wall, bonus_nonce]);
+            assert(expected == self.storage.post_key.at(bonus_post_id).read(), "not your post");
+
+            // Each reply can be spent once.
+            let spent = poseidon2_hash([secret, bonus_post_id, 0 as Field, DOMAIN_REPLY]);
+            self.context.push_nullifier_unsafe(spent);
+        }
+
+        // Public reply key for THIS post: the owner replies to the post, and only
+        // the author can later prove they hold the secret behind this value.
+        let key = poseidon2_hash([secret, wall, nonce]);
+        self.enqueue(OnWallz::at(self.address)._publish(wall, text, length, nonce, key, mode, author_tag));
+    }
+
+    /// Public half of a wall post. Receives no author information.
+    #[external("public")]
+    #[only_self]
+    fn _publish(
+        wall: Field,
+        text: [Field; 3],
+        length: u16,
+        nonce: Field,
+        key: Field,
+        mode: u8,
+        author_tag: Field,
+    ) {
+        // The first message is what brings a wall into existence. Concurrent
+        // first messages cannot duplicate it: the id is derived and this is a
+        // single public state transition.
+        if !self.storage.exists.at(wall).read() {
+            self.storage.exists.at(wall).write(true);
+            self.storage.post_count.at(wall).write(0);
+        }
+        let count = self.storage.post_count.at(wall).read();
+        let id = poseidon2_hash([wall, count as Field]);
+        self.storage.post_text.at(id).write(text);
+        self.storage.post_len.at(id).write(length);
+        self.storage.post_wall.at(id).initialize(wall);
+        self.storage.post_nonce.at(id).initialize(nonce);
+        self.storage.post_key.at(id).initialize(key);
+        self.storage.post_mode.at(id).initialize(mode);
+        self.storage.post_tag.at(id).initialize(author_tag);
+        self.storage.post_count.at(wall).write(count + 1);
+        let seq = self.storage.activity_count.read();
+        self.storage.activity_wall.at(seq).write(wall);
+        self.storage.activity_post.at(seq).write(id);
+        self.storage.activity_index.at(seq).write(count);
+        self.storage.activity_count.write(seq + 1);
+        self.emit(Posted { wall, index: count, length, text });
+    }
+
+    /// Tombstone one of your own posts.
+    ///
+    /// Authorisation is the post's own reply key: you prove in zero knowledge that
+    /// you hold the secret behind it, so nobody - not the wall owner, not an
+    /// administrator - can delete a note on your behalf, and the deletion itself
+    /// reveals no author.
+    ///
+    /// The text is retained. Deletion is a marker, never a rewrite.
+    #[external("private")]
+    fn tombstone(wall: Field, post_id: Field, nonce: Field) {
+        assert(self.storage.post_wall.at(post_id).read() == wall, "post is on another wall");
+        let secret = self.context.request_nhk_app(get_public_keys(self.msg_sender()).npk_m_hash);
+        let expected = poseidon2_hash([secret, wall, nonce]);
+        assert(expected == self.storage.post_key.at(post_id).read(), "not your post");
+        self.enqueue(OnWallz::at(self.address)._tombstone(post_id));
+    }
+
+    #[external("public")]
+    #[only_self]
+    fn _tombstone(post_id: Field) {
+        assert(!self.storage.post_deleted.at(post_id).is_initialized(), "already tombstoned");
+        self.storage.post_deleted.at(post_id).initialize(true);
+        self.emit(NoteTombstoned { post_id });
+    }
+
+    /// The wall owner replies to a post. This unlocks one extra post for that
+    /// post's author, who is never identified.
+    #[external("public")]
+    fn reply(wall: Field, post_id: Field, text: Field) {
+        assert(self.storage.owner_of.at(wall).is_initialized(), "this wall has no owner yet");
+        assert(self.msg_sender() == self.storage.owner_of.at(wall).read(), "only the wall owner");
+        assert(self.storage.post_wall.at(post_id).read() == wall, "post is on another wall");
+        assert(text != 0, "reply required");
+        assert(!self.storage.replied.at(post_id).is_initialized(), "already replied");
+        self.storage.replied.at(post_id).initialize(true);
+        self.storage.reply_text.at(post_id).write(text);
+        self.emit(Replied { wall, post_id, text });
+    }
+
+    /// The page owned by an address, or 0. The client calls this on connect, so
+    /// a wall is restored from the contract rather than from local storage.
+    #[external("public")]
+    #[view]
+    fn page_of(owner: AztecAddress) -> Field {
+        self.storage.handle_of.at(owner).read()
+    }
+
+    #[external("public")]
+    #[view]
+    fn page(handle: Field) -> pub (AztecAddress, Field, u32) {
+        (
+            self.storage.owner_of.at(handle).read(),
+            self.storage.display.at(handle).read(),
+            self.storage.post_count.at(handle).read(),
+        )
+    }
+
+    #[external("public")]
+    #[view]
+    fn read_post(wall: Field, index: u32) -> pub ([Field; 3], u16, u8, Field) {
+        let id = poseidon2_hash([wall, index as Field]);
+        (
+            self.storage.post_text.at(id).read(),
+            self.storage.post_len.at(id).read(),
+            self.storage.post_mode.at(id).read(),
+            self.storage.post_tag.at(id).read(),
+        )
+    }
+
+    /// Deterministic wall id for an X username.
+    ///
+    /// The caller packs the normalised username into a single Field (UTF-8 bytes,
+    /// lowercase) and passes its byte length. Any wall can be addressed without
+    /// registering it first.
+    #[external("public")]
+    #[view]
+    fn wall_id(name: Field, len: u8) -> Field {
+        assert(len > 0, "username required");
+        assert(len as u32 <= 15, "username too long");
+        poseidon2_hash([name, len as Field, DOMAIN_WALL])
+    }
+
+    #[external("public")]
+    #[view]
+    fn read_reply(wall: Field, index: u32) -> pub (bool, Field) {
+        let id = poseidon2_hash([wall, index as Field]);
+        (
+            self.storage.replied.at(id).read(),
+            self.storage.reply_text.at(id).read(),
+        )
+    }
+
+    /// Total number of published notes ever. The feed reads backwards from here.
+    #[external("public")]
+    #[view]
+    fn activity_count() -> u32 {
+        self.storage.activity_count.read()
+    }
+
+    /// The (wall, post id) at a global activity position. Reading a bounded
+    /// window is what keeps the feed off full-chain scans.
+    #[external("public")]
+    #[view]
+    fn activity_at(seq: u32) -> pub (Field, Field, u32) {
+        (
+            self.storage.activity_wall.at(seq).read(),
+            self.storage.activity_post.at(seq).read(),
+            self.storage.activity_index.at(seq).read(),
+        )
+    }
+
+    /// Number of notes on a wall. Public and cheap; the client uses it to size
+    /// its read loop instead of scanning.
+    /// Whether a note has been tombstoned by its author.
+    #[external("public")]
+    #[view]
+    fn is_deleted(post_id: Field) -> bool {
+        self.storage.post_deleted.at(post_id).is_initialized()
+    }
+
+    #[external("public")]
+    #[view]
+    fn notes(wall: Field) -> u32 {
+        self.storage.post_count.at(wall).read()
+    }
+
+    /// Whether a wall has a registered owner.
+    #[external("public")]
+    #[view]
+    fn is_claimed(wall: Field) -> bool {
+        self.storage.owner_of.at(wall).is_initialized()
+    }
+
+    /// The id of the post at `index` on `wall` - needed by clients that want to
+    /// reply, and by authors claiming a bonus post.
+    #[external("public")]
+    #[view]
+    fn post_id_at(wall: Field, index: u32) -> pub Field {
+        poseidon2_hash([wall, index as Field])
+    }
+}

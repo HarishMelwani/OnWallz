@@ -1,0 +1,275 @@
+use aztec::protocol::address::AztecAddress;
+use aztec::protocol::hash::poseidon2_hash;
+use aztec::test::helpers::test_environment::TestEnvironment;
+use onwallz_contract::OnWallz;
+
+/// Deploy OnWallz, create wall 1 (alice) and wall 2 (bob).
+unconstrained fn setup() -> (TestEnvironment, AztecAddress, AztecAddress, AztecAddress) {
+    let mut env = TestEnvironment::new();
+    let deployer = env.create_light_account();
+    let alice = env.create_light_account();
+    let bob = env.create_light_account();
+
+    let address = env
+        .deploy("@onwallz_contract/OnWallz")
+        .with_private_initializer(deployer, OnWallz::interface().constructor());
+
+    env.call_private(alice, OnWallz::at(address).create_page(1, 111));
+    env.call_private(bob, OnWallz::at(address).create_page(2, 222));
+
+    (env, alice, bob, address)
+}
+
+#[test]
+unconstrained fn test_bob_writes_on_alice_wall() {
+    let (mut env, alice, bob, address) = setup();
+
+    env.call_private(bob, OnWallz::at(address).write(1, [7, 8, 9], 3, 1001, 0, 0, 0));
+
+    let (text, length, _mode, _tag) = env.view_public(OnWallz::at(address).read_post(1, 0));
+    assert(text[0] == 7);
+    assert(text[1] == 8);
+    assert(text[2] == 9);
+    assert(length == 3);
+
+    let (owner, display, count) = env.view_public(OnWallz::at(address).page(1));
+    assert(owner == alice);
+    assert(display == 111);
+    assert(count == 1);
+}
+
+#[test(should_fail)]
+unconstrained fn test_one_post_per_day() {
+    let (mut env, _alice, bob, address) = setup();
+
+    env.call_private(bob, OnWallz::at(address).write(1, [1, 1, 1], 3, 2001, 0, 0, 0));
+    // same person, same wall, same day, different nonce
+    env.call_private(bob, OnWallz::at(address).write(1, [2, 2, 2], 3, 2002, 0, 0, 0));
+}
+
+#[test]
+unconstrained fn test_owner_reply_unlocks_a_bonus_post() {
+    let (mut env, alice, bob, address) = setup();
+
+    // bob writes on alice's wall
+    env.call_private(bob, OnWallz::at(address).write(1, [5, 5, 5], 3, 3001, 0, 0, 0));
+    let post_id = poseidon2_hash([1 as Field, 0 as Field]);
+
+    // alice replies to that post
+    env.call_public(alice, OnWallz::at(address).reply(1, post_id, 777));
+
+    // bob may now write again immediately
+    env.call_private(bob, OnWallz::at(address).write(1, [6, 6, 6], 3, 3002, post_id, 0, 0));
+
+    let (_owner, _display, count) = env.view_public(OnWallz::at(address).page(1));
+    assert(count == 2);
+
+    let (replied, reply_text) = env.view_public(OnWallz::at(address).read_reply(1, 0));
+    assert(replied);
+    assert(reply_text == 777);
+}
+
+#[test(should_fail)]
+unconstrained fn test_bonus_needs_a_reply() {
+    let (mut env, _alice, bob, address) = setup();
+
+    env.call_private(bob, OnWallz::at(address).write(1, [5, 5, 5], 3, 4001, 0, 0, 0));
+    let post_id = poseidon2_hash([1 as Field, 0 as Field]);
+
+    // no reply from alice, so this must fail
+    env.call_private(bob, OnWallz::at(address).write(1, [6, 6, 6], 3, 4002, post_id, 0, 0));
+}
+
+#[test(should_fail)]
+unconstrained fn test_only_owner_can_reply() {
+    let (mut env, _alice, bob, address) = setup();
+
+    env.call_private(bob, OnWallz::at(address).write(1, [5, 5, 5], 3, 5001, 0, 0, 0));
+    let post_id = poseidon2_hash([1 as Field, 0 as Field]);
+
+    // bob is not the owner of wall 1
+    env.call_public(bob, OnWallz::at(address).reply(1, post_id, 777));
+}
+
+#[test(should_fail)]
+unconstrained fn test_handle_is_unique() {
+    let (mut env, _alice, bob, address) = setup();
+
+    env.call_private(bob, OnWallz::at(address).create_page(1, 222));
+}
+
+#[test]
+unconstrained fn test_page_of_resolves_the_owner() {
+    let (mut env, alice, bob, address) = setup();
+
+    // The wall survives a cleared browser because the contract knows the mapping.
+    assert(env.view_public(OnWallz::at(address).page_of(alice)) == 1);
+    assert(env.view_public(OnWallz::at(address).page_of(bob)) == 2);
+}
+
+#[test(should_fail)]
+unconstrained fn test_one_page_per_address() {
+    let (mut env, _alice, bob, address) = setup();
+
+    // bob already owns a page (handle 2); a second one must be refused
+    env.call_private(bob, OnWallz::at(address).create_page(3, 333));
+}
+#[test]
+unconstrained fn test_wall_id_is_deterministic() {
+    let mut env = TestEnvironment::new();
+    let deployer = env.create_light_account();
+    let address = env
+        .deploy("@onwallz_contract/OnWallz")
+        .with_private_initializer(deployer, OnWallz::interface().constructor());
+    let a = env.view_public(OnWallz::at(address).wall_id(0x616c696365, 5));
+    let b = env.view_public(OnWallz::at(address).wall_id(0x616c696365, 5));
+    let c = env.view_public(OnWallz::at(address).wall_id(0x626f62, 3));
+    assert(a == b, "same username must map to the same wall");
+    assert(a != c, "different usernames must differ");
+    assert(a != 0, "wall id must be non-zero");
+}
+
+#[test]
+unconstrained fn test_public_post_records_identity_tag() {
+    let (mut env, alice, bob, address) = setup();
+    // wall 1 belongs to alice, so bob is a legitimate outside writer.
+    let page = env.view_public(OnWallz::at(address).page(1));
+    assert(page.0 == alice, "wall 1 must belong to alice");
+    env.call_private(bob, OnWallz::at(address).write(1, [1, 2, 3], 3, 4242, 0, 1, 777));
+    let (_t, _l, mode, tag) = env.view_public(OnWallz::at(address).read_post(1, 0));
+    assert(mode == 1);
+    assert(tag == 777);
+}
+
+#[test]
+unconstrained fn test_notes_and_claim_views() {
+    let (mut env, alice, bob, address) = setup();
+    let wall: Field = 1;
+    assert(env.view_public(OnWallz::at(address).is_claimed(wall)) == true);
+    assert(env.view_public(OnWallz::at(address).notes(wall)) == 0);
+    env.call_private(bob, OnWallz::at(address).write(wall, [5, 0, 0], 1, 555, 0, 0, 0));
+    assert(env.view_public(OnWallz::at(address).notes(wall)) == 1);
+    assert(alice != bob);
+}
+
+#[test]
+unconstrained fn test_unknown_wall_has_no_claim() {
+    let (mut env, _a, _b, address) = setup();
+    let unknown: Field = 99999;
+    assert(env.view_public(OnWallz::at(address).is_claimed(unknown)) == false);
+    assert(env.view_public(OnWallz::at(address).notes(unknown)) == 0);
+}
+
+#[test]
+unconstrained fn test_activity_log_orders_posts() {
+    let (mut env, _alice, bob, address) = setup();
+    let wall_a: Field = 1;
+    let wall_b: Field = 2;
+    let carol = env.create_light_account();
+    assert(env.view_public(OnWallz::at(address).activity_count()) == 0);
+    env.call_private(bob, OnWallz::at(address).write(wall_a, [1, 0, 0], 1, 11, 0, 0, 0));
+    env.call_private(carol, OnWallz::at(address).write(wall_b, [2, 0, 0], 1, 22, 0, 0, 0));
+    assert(env.view_public(OnWallz::at(address).activity_count()) == 2);
+    let first = env.view_public(OnWallz::at(address).activity_at(0));
+    let second = env.view_public(OnWallz::at(address).activity_at(1));
+    assert(first.0 == wall_a, "first entry is wall A");
+    assert(second.0 == wall_b, "second entry is wall B");
+    assert(first.1 != second.1, "post ids differ");
+    assert(first.2 == 0, "first post index is 0");
+    assert(second.2 == 0, "first post on wall B is index 0");
+}
+
+#[test]
+unconstrained fn test_open_wall_derives_id_from_name() {
+    let mut env = TestEnvironment::new();
+    let alice = env.create_light_account();
+    let bob = env.create_light_account();
+    let address = env
+        .deploy("@onwallz_contract/OnWallz")
+        .with_private_initializer(alice, OnWallz::interface().constructor());
+
+    let name: Field = 0x616c696365; // packed "alice"
+    let expected = env.view_public(OnWallz::at(address).wall_id(name, 5));
+    env.call_private(alice, OnWallz::at(address).open_wall(name, 5, 111));
+
+    let page = env.view_public(OnWallz::at(address).page(expected));
+    assert(page.0 == alice, "owner is alice");
+    assert(page.1 == 111, "display stored");
+
+    // Someone else can write on it, and the owner cannot write on their own wall.
+    env.call_private(bob, OnWallz::at(address).write(expected, [1, 0, 0], 1, 77, 0, 0, 0));
+    assert(env.view_public(OnWallz::at(address).notes(expected)) == 1);
+}
+
+#[test(should_fail)]
+unconstrained fn test_open_wall_twice_is_rejected() {
+    let mut env = TestEnvironment::new();
+    let alice = env.create_light_account();
+    let other = env.create_light_account();
+    let address = env
+        .deploy("@onwallz_contract/OnWallz")
+        .with_private_initializer(alice, OnWallz::interface().constructor());
+    let name: Field = 0x616c696365;
+    env.call_private(alice, OnWallz::at(address).open_wall(name, 5, 1));
+    // A different account cannot open the same handle again (same derived id).
+    env.call_private(other, OnWallz::at(address).open_wall(name, 5, 2));
+}
+
+#[test]
+unconstrained fn test_author_can_tombstone_own_note() {
+    let (mut env, _alice, bob, address) = setup();
+    let wall: Field = 1;
+    let nonce: Field = 4242;
+    env.call_private(bob, OnWallz::at(address).write(wall, [1, 2, 3], 3, nonce, 0, 0, 0));
+    let post_id = env.view_public(OnWallz::at(address).post_id_at(wall, 0));
+    assert(env.view_public(OnWallz::at(address).is_deleted(post_id)) == false);
+    env.call_private(bob, OnWallz::at(address).tombstone(wall, post_id, nonce));
+    assert(env.view_public(OnWallz::at(address).is_deleted(post_id)) == true);
+    // Content is retained: a tombstone is a marker, not a rewrite.
+    let (text, len, _m, _t) = env.view_public(OnWallz::at(address).read_post(wall, 0));
+    assert(text[0] == 1);
+    assert(len == 3);
+}
+
+#[test(should_fail)]
+unconstrained fn test_cannot_tombstone_someone_elses_note() {
+    let (mut env, _alice, bob, address) = setup();
+    let wall: Field = 1;
+    env.call_private(bob, OnWallz::at(address).write(wall, [1, 2, 3], 3, 999, 0, 0, 0));
+    let post_id = env.view_public(OnWallz::at(address).post_id_at(wall, 0));
+    let carol = env.create_light_account();
+    // Carol does not hold the secret behind this post's key.
+    env.call_private(carol, OnWallz::at(address).tombstone(wall, post_id, 999));
+}
+
+#[test]
+unconstrained fn test_first_message_creates_the_wall() {
+    let (mut env, alice, bob, address) = setup();
+    let name: Field = 0x7a6564; // "zed"
+    let wall = env.view_public(OnWallz::at(address).wall_id(name, 3));
+    // Nobody has written about zed yet.
+    assert(env.view_public(OnWallz::at(address).notes(wall)) == 0);
+    assert(env.view_public(OnWallz::at(address).is_claimed(wall)) == false);
+
+    env.call_private(bob, OnWallz::at(address).write(wall, [1, 0, 0], 1, 11, 0, 0, 0));
+
+    assert(env.view_public(OnWallz::at(address).notes(wall)) == 1, "first message creates the wall");
+    // Writing must never grant ownership.
+    assert(env.view_public(OnWallz::at(address).is_claimed(wall)) == false, "writer does not own it");
+    assert(alice != bob);
+}
+
+#[test]
+unconstrained fn test_second_message_reuses_the_same_wall() {
+    let (mut env, _alice, bob, address) = setup();
+    let carol = env.create_light_account();
+    let name: Field = 0x7a6564;
+    let wall = env.view_public(OnWallz::at(address).wall_id(name, 3));
+    env.call_private(bob, OnWallz::at(address).write(wall, [1, 0, 0], 1, 21, 0, 0, 0));
+    env.call_private(carol, OnWallz::at(address).write(wall, [2, 0, 0], 1, 22, 0, 0, 0));
+    assert(env.view_public(OnWallz::at(address).notes(wall)) == 2, "both messages on one wall");
+    let first = env.view_public(OnWallz::at(address).read_post(wall, 0));
+    let second = env.view_public(OnWallz::at(address).read_post(wall, 1));
+    assert(first.0[0] == 1);
+    assert(second.0[0] == 2);
+}

@@ -1,0 +1,106 @@
+import { useState } from "react";
+
+const LIMIT = 93;
+
+type Identity = { mode: 0 | 1; tag?: string };
+
+type Props = {
+  mode: "ready" | "bonus";
+  ownerName: string;
+  /** The writer's own handle, offered when they choose to be public. */
+  meHandle?: string;
+  busy?: boolean;
+  onSend: (text: string, identity: Identity) => void;
+};
+
+export function Composer({ mode, ownerName, meHandle, busy, onSend }: Props) {
+  const [text, setText] = useState("");
+  const [identity, setIdentity] = useState<0 | 1>(0);
+  const [handle, setHandle] = useState(meHandle ?? "");
+  const left = LIMIT - text.length;
+  const ready = text.trim().length > 0 && left >= 0;
+
+  const handleOk = identity === 0 || /^@?[a-zA-Z0-9_]{1,15}$/.test(handle.trim());
+  const canSend = ready && handleOk;
+
+  function send() {
+    console.info("[onwallz] composer click", { canSend, ready, handleOk, len: text.length });
+    if (!canSend) return;
+    const tag = handle.trim().replace(/^@/, "").toLowerCase();
+    onSend(text.trim(), identity === 1 ? { mode: 1, tag } : { mode: 0 });
+    setText("");
+  }
+
+  return (
+    <div className="composer">
+      {mode === "bonus" && (
+        <div className="notice good" style={{ marginBottom: 12 }}>
+          {ownerName} replied to you — you can write again.
+        </div>
+      )}
+      <div className="field">
+        <label htmlFor="note">
+          write on {ownerName}&rsquo;s wall <span className="muted">— they won&rsquo;t know it was you</span>
+        </label>
+        <textarea
+          id="note"
+          className="textarea"
+          placeholder="say the thing."
+          value={text}
+          maxLength={LIMIT}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") send();
+          }}
+        />
+      </div>
+      <div className="row" style={{ marginBottom: 10 }}>
+        <div className="seg" role="group" aria-label="posting identity">
+          <button
+            type="button"
+            className={`btn sm ${identity === 0 ? "primary" : "ghost"}`}
+            onClick={() => setIdentity(0)}
+          >
+            anonymous
+          </button>
+          <button
+            type="button"
+            className={`btn sm ${identity === 1 ? "primary" : "ghost"}`}
+            onClick={() => setIdentity(1)}
+          >
+            show my handle
+          </button>
+        </div>
+      </div>
+      {identity === 1 && (
+        <div className="field">
+          <label htmlFor="tag">your handle</label>
+          <input
+            id="tag"
+            className="input"
+            placeholder="alice"
+            value={handle}
+            maxLength={16}
+            onChange={(e) => setHandle(e.target.value)}
+          />
+          <span className="hint">
+            self-declared until OnWallz can verify X ownership — shown as @
+            {handle.trim().replace(/^@/, "").toLowerCase() || "you"}
+          </span>
+        </div>
+      )}
+      <div className="row">
+        <span className={`counter ${left < 0 ? "over" : ""}`}>
+          {text.length}/{LIMIT}
+        </span>
+        <span className="spacer grow" />
+        <span className="hint" style={{ marginRight: 8 }}>
+          <span className="kbd">⌘</span> <span className="kbd">↵</span>
+        </span>
+        <button type="button" className="btn primary" disabled={!canSend || busy} onClick={send}>
+          {busy ? "writing…" : "leave it"}
+        </button>
+      </div>
+    </div>
+  );
+}

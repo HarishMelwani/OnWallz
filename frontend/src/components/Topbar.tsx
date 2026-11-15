@@ -15,9 +15,14 @@ function short(addr: string) {
 }
 
 export function Topbar({ me, wallet, onHome, onConnect, onDisconnect }: Props) {
-  const [dark, setDark] = useState(
-    () => document.documentElement.dataset.theme === "dark",
-  );
+  const [dark, setDark] = useState(() => {
+    // A link can select the theme, which also makes screenshots and shared links
+    // land in the state they describe.
+    const fromUrl = new URLSearchParams(window.location.search).get("theme");
+    if (fromUrl === "dark") return true;
+    if (fromUrl === "light") return false;
+    return document.documentElement.dataset.theme === "dark";
+  });
 
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";

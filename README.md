@@ -11,7 +11,9 @@ holding your posts. The wallet is the account.
 
 Live on Aztec testnet: https://onwallz.vercel.app
 
-![The wall for @aztec, one anonymous note on it](docs/wall.png)
+![The home page](docs/home.png)
+
+![The wall for @aztec, in dark mode](docs/wall-dark.png)
 
 ## The idea
 

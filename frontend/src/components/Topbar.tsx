@@ -29,6 +29,17 @@ export function Topbar({ me, wallet, onHome, onConnect, onDisconnect }: Props) {
     localStorage.setItem("onwallz.theme", dark ? "dark" : "light");
   }, [dark]);
 
+  const [waited, setWaited] = useState(0);
+  useEffect(() => {
+    if (wallet.status !== "discovering") {
+      setWaited(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const id = setInterval(() => setWaited(Math.floor((Date.now() - startedAt) / 1000)), 500);
+    return () => clearInterval(id);
+  }, [wallet.status]);
+
   const connected = wallet.status === "connected" && !!wallet.address;
   const busy =
     wallet.status === "discovering" ||
@@ -75,7 +86,9 @@ export function Topbar({ me, wallet, onHome, onConnect, onDisconnect }: Props) {
         <span className="chip mono muted">
           <span className="dot pending" />
           {wallet.status === "discovering"
-            ? "looking for Nulo…"
+            ? waited >= 2
+              ? `waking Nulo… ${waited}s`
+              : "looking for Nulo…"
             : wallet.status === "connecting"
               ? "opening Nulo…"
               : "approve in Nulo…"}

@@ -26,7 +26,7 @@ import {
 
 export const APP_ID = "OnWallz";
 const APP_VERSION = "0.1.0";
-const DISCOVERY_TIMEOUT = 8_000;
+const DISCOVERY_TIMEOUT = 30_000;
 
 export type WalletStatus =
   | "idle"
@@ -230,6 +230,8 @@ async function pickWallet(
   }
   if (candidates.length > 0) {
     console.info("[onwallz] wallets found:", candidates.map((c) => c.name).join(", "));
+  } else {
+    console.warn("[onwallz] no wallet answered discovery for this chain");
   }
   return candidates[0];
 }
@@ -312,14 +314,19 @@ export async function connect(
     let found: WalletProvider | undefined;
     // One overall budget, not one per attempt: the first chain that matters gets
     // most of it, the fallbacks only get the leftovers.
+    // A cold extension can take ten seconds or more before it answers, so the
+    // first attempt owns most of the budget. Fallbacks are for wallets that label
+    // the chain differently, not for making the user wait twice.
     const totalBudget = DISCOVERY_TIMEOUT;
     const startedAt = performance.now();
+    const fallbackShare = 4_000;
     for (let i = 0; i < attempts.length; i++) {
       chainInfo = attempts[i];
       const remaining = totalBudget - (performance.now() - startedAt);
       if (remaining < 400) break;
-      const share = i === 0 ? Math.max(remaining - 1_500, 400) : remaining - 200 * (attempts.length - 1 - i);
-      found = await discover(attempts[i], Math.max(share, 400));
+      const later = attempts.length - 1 - i;
+      const share = later === 0 ? remaining : Math.max(remaining - fallbackShare * later, 400);
+      found = await discover(attempts[i], share);
       if (found) break;
     }
     console.info("[onwallz] discovery result:", found ? found.name : "nothing");

@@ -34,17 +34,26 @@ export function Probe() {
     try {
       const { WalletManager } = await import("@aztec-labs/wallet-sdk/manager");
       const { Fr } = await import("@aztec-labs/foundation/curves/bn254");
+      const { CHAIN_ID_OVERRIDE, VERSION_OVERRIDE } = await import("../lib/config");
       push("sdk loaded ok");
+
+      // Ask for the chain this build actually targets, not a placeholder.
+      const chainId = new Fr(BigInt(CHAIN_ID_OVERRIDE || "0"));
+      const version = new Fr(BigInt(VERSION_OVERRIDE || "0"));
+      push(`chain         ${chainId.toString()}`);
+      push(`version       ${version.toString()}`);
+
       const manager = WalletManager.configure({ extensions: { enabled: true } });
       const discovery = manager.getAvailableWallets({
-        chainInfo: { chainId: Fr.ZERO, version: Fr.ZERO },
-        appId: "onwallz",
-        timeout: 10_000,
+        chainInfo: { chainId, version },
+        appId: "OnWallz",
+        timeout: 30_000,
       });
-      const timer = setTimeout(() => push("no response in 10s"), 10_000);
+      const started = Date.now();
+      const timer = setTimeout(() => push("no provider after 30s"), 30_000);
       for await (const provider of discovery.wallets) {
         clearTimeout(timer);
-        push(`FOUND: ${provider.name} (${provider.id})`);
+        push(`FOUND: ${provider.name} (${provider.id}) after ${Date.now() - started}ms`);
         break;
       }
       clearTimeout(timer);

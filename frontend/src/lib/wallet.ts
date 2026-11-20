@@ -192,23 +192,70 @@ function delay(ms: number): Promise<never | undefined> {
  */
 async function pickWallet(
   discovery: { wallets: AsyncIterable<WalletProvider> },
+  budgetMs: number,
 ): Promise<WalletProvider | undefined> {
   const candidates: WalletProvider[] = [];
-  const collect = (async () => {
-    try {
-      for await (const p of discovery.wallets) {
-        candidates.push(p);
-        if (/nulo/i.test(`${p.name} ${p.id}`)) return;
+  const started = performance.now();
+
+  // Resolve the moment Nulo answers. The old version always waited the full
+  // window per chain attempt, which is what made a cold extension feel broken.
+  const nulo = await new Promise<WalletProvider | undefined>((resolve) => {
+    let settled = false;
+    const finish = (value: WalletProvider | undefined) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(undefined), budgetMs);
+    void (async () => {
+      try {
+        for await (const p of discovery.wallets) {
+          candidates.push(p);
+          if (/nulo/i.test(`${p.name} ${p.id}`)) {
+            finish(p);
+            return;
+          }
+        }
+      } catch {
+        // discovery cancelled or timed out
       }
-    } catch {
-      // discovery cancelled or timed out
-    }
-  })();
-  await Promise.race([collect, delay(2_500)]);
-  if (candidates.length > 1) {
+      finish(undefined);
+    })();
+  });
+
+  if (nulo) {
+    console.info(`[onwallz] Nulo answered in ${Math.round(performance.now() - started)}ms`);
+    return nulo;
+  }
+  if (candidates.length > 0) {
     console.info("[onwallz] wallets found:", candidates.map((c) => c.name).join(", "));
   }
-  return candidates.find((p) => /nulo/i.test(`${p.name} ${p.id}`)) ?? candidates[0];
+  return candidates[0];
+}
+
+/**
+ * Wake the extension before the user asks for it. An MV3 wallet's service worker
+ * goes idle, and the first handshake after that has to start it again. Doing one
+ * throwaway discovery on page load moves that cost off the connect button.
+ */
+let warmed = false;
+export async function warmWalletDiscovery(): Promise<void> {
+  if (warmed) return;
+  warmed = true;
+  try {
+    const manager = WalletManager.configure({ extensions: { enabled: true } });
+    const session = manager.getAvailableWallets({
+      chainInfo: configuredChainInfo(),
+      appId: APP_ID,
+      timeout: 3_000,
+    });
+    await pickWallet(session as never, 2_500);
+    session.cancel();
+    console.info("[onwallz] wallet discovery warmed");
+  } catch {
+    // A browser without an extension simply has nothing to warm.
+  }
 }
 
 let lastAccounts: GrantedAccount[] = [];
@@ -230,7 +277,7 @@ export async function connect(
     // chain id, others leave it at 0 and rely on the RPC. Ask for the exact
     // chain first, then fall back to 0 rather than telling the user their wallet
     // is on the wrong network when it simply labels it differently.
-    async function discover(chainInfo: { chainId: Fr; version: Fr }) {
+    async function discover(chainInfo: { chainId: Fr; version: Fr }, budgetMs: number) {
       const session = manager.getAvailableWallets({
         chainInfo,
         appId: APP_ID,
@@ -243,7 +290,7 @@ export async function connect(
         "version",
         chainInfo.version.toString(),
       );
-      const provider = await pickWallet(session as never);
+      const provider = await pickWallet(session as never, budgetMs);
       cancelDiscovery?.();
       cancelDiscovery = null;
       return provider;
@@ -263,9 +310,16 @@ export async function connect(
 
     let chainInfo = configured;
     let found: WalletProvider | undefined;
-    for (const attempt of attempts) {
-      chainInfo = attempt;
-      found = await discover(attempt);
+    // One overall budget, not one per attempt: the first chain that matters gets
+    // most of it, the fallbacks only get the leftovers.
+    const totalBudget = DISCOVERY_TIMEOUT;
+    const startedAt = performance.now();
+    for (let i = 0; i < attempts.length; i++) {
+      chainInfo = attempts[i];
+      const remaining = totalBudget - (performance.now() - startedAt);
+      if (remaining < 400) break;
+      const share = i === 0 ? Math.max(remaining - 1_500, 400) : remaining - 200 * (attempts.length - 1 - i);
+      found = await discover(attempts[i], Math.max(share, 400));
       if (found) break;
     }
     console.info("[onwallz] discovery result:", found ? found.name : "nothing");

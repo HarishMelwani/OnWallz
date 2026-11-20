@@ -130,6 +130,15 @@ export default function App() {
   useEffect(() => {
   }, [route.name, session.me?.handle]);
 
+  // Warm the wallet handshake while the page is idle, so the connect button does
+  // not pay for waking the extension.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      void import("./lib/wallet").then((w) => w.warmWalletDiscovery()).catch(() => {});
+    }, 700);
+    return () => clearTimeout(id);
+  }, []);
+
   async function connect() {
     const walletLib = await import("./lib/wallet");
     const result = await walletLib.connect(patchWallet);

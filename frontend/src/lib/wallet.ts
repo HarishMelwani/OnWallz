@@ -236,30 +236,6 @@ async function pickWallet(
   return candidates[0];
 }
 
-/**
- * Wake the extension before the user asks for it. An MV3 wallet's service worker
- * goes idle, and the first handshake after that has to start it again. Doing one
- * throwaway discovery on page load moves that cost off the connect button.
- */
-let warmed = false;
-export async function warmWalletDiscovery(): Promise<void> {
-  if (warmed) return;
-  warmed = true;
-  try {
-    const manager = WalletManager.configure({ extensions: { enabled: true } });
-    const session = manager.getAvailableWallets({
-      chainInfo: configuredChainInfo(),
-      appId: APP_ID,
-      timeout: 3_000,
-    });
-    await pickWallet(session as never, 2_500);
-    session.cancel();
-    console.info("[onwallz] wallet discovery warmed");
-  } catch {
-    // A browser without an extension simply has nothing to warm.
-  }
-}
-
 let lastAccounts: GrantedAccount[] = [];
 
 export async function connect(
@@ -298,37 +274,18 @@ export async function connect(
       return provider;
     }
 
-    // Wallets disagree about chain labels, and a wallet sitting on another network
-    // simply does not answer. Try the declared chain, then the two fallbacks that
-    // matter in practice: "unknown" (0) and the local network's id.
+    // Exactly one discovery, for the chain this build targets. A second request for
+    // the same app while the first is pending is coalesced and rejected, which
+    // deletes the pending entry and leaves nothing to answer.
     const configured = configuredChainInfo();
-    const attempts: { chainId: Fr; version: Fr }[] = [
-      configured,
-      { chainId: Fr.ZERO, version: Fr.ZERO },
-    ];
-    if (!configured.chainId.equals(new Fr(31337)) && !configured.chainId.equals(Fr.ZERO)) {
-      attempts.push({ chainId: new Fr(31337), version: new Fr(31337) });
-    }
+    const attempts: { chainId: Fr; version: Fr }[] = [configured];
 
     let chainInfo = configured;
     let found: WalletProvider | undefined;
     // One overall budget, not one per attempt: the first chain that matters gets
     // most of it, the fallbacks only get the leftovers.
-    // A cold extension can take ten seconds or more before it answers, so the
-    // first attempt owns most of the budget. Fallbacks are for wallets that label
-    // the chain differently, not for making the user wait twice.
-    const totalBudget = DISCOVERY_TIMEOUT;
-    const startedAt = performance.now();
-    const fallbackShare = 4_000;
-    for (let i = 0; i < attempts.length; i++) {
-      chainInfo = attempts[i];
-      const remaining = totalBudget - (performance.now() - startedAt);
-      if (remaining < 400) break;
-      const later = attempts.length - 1 - i;
-      const share = later === 0 ? remaining : Math.max(remaining - fallbackShare * later, 400);
-      found = await discover(attempts[i], share);
-      if (found) break;
-    }
+    chainInfo = configured;
+    found = await discover(configured, DISCOVERY_TIMEOUT);
     console.info("[onwallz] discovery result:", found ? found.name : "nothing");
 
     if (!found) {

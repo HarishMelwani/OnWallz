@@ -177,6 +177,7 @@ export function replaceWallPosts(
     tag: string | null;
     replied: boolean;
     replyText: string | null;
+    ts?: number | null;
     deleted?: boolean;
   }[],
 ): Snapshot {
@@ -186,7 +187,7 @@ export function replaceWallPosts(
     wall,
     index: r.index,
     text: r.text,
-    ts: Date.now(),
+    ts: r.ts ?? 0,
     mode: r.mode === 1 ? 1 : 0,
     tag: r.mode === 1 ? r.tag : null,
     mine: false,

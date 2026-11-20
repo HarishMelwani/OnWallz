@@ -227,7 +227,7 @@ export function Wall({
                       self-declared
                     </span>
                   )}
-                  <span className="when">· {timeAgo(p.ts)}</span>
+                  {p.ts ? <span className="when">· {timeAgo(p.ts)}</span> : null}
                 </div>
                 {p.deleted ? (
                   <div className="text muted" style={{ fontStyle: "italic" }}>

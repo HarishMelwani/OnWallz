@@ -204,12 +204,22 @@ export function unpackText(fields: Fr[]): string {
   return dec.decode(new Uint8Array(bytes));
 }
 
+/**
+ * A nonce whose top bits are the posting time. The contract treats the nonce as
+ * opaque, it is already public, and the claim only hashes it, so the timestamp
+ * costs no storage and needs no contract change. Readers decode it back.
+ */
+export function timestampedNonce(): Fr {
+  const random = new Uint8Array(11); // 88 bits
+  crypto.getRandomValues(random);
+  let low = 0n;
+  for (const b of random) low = (low << 8n) | BigInt(b);
+  const ms = BigInt(Date.now());
+  return new Fr((ms << 88n) | low);
+}
+
 export function randomNonce(): Fr {
-  const bytes = new Uint8Array(31);
-  crypto.getRandomValues(bytes);
-  let hex = "";
-  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
-  return Fr.fromString(`0x${hex}`);
+  return timestampedNonce();
 }
 
 /* ---------- calls ---------- */
@@ -360,6 +370,7 @@ export async function readWall(wall: string, _from?: string) {
     tag: p.tag,
     replied: p.replied,
     replyText: p.replyText,
+    ts: p.ts,
     deleted: false,
   }));
 }
@@ -375,5 +386,6 @@ export async function readActivity(limit: number, _from?: string) {
     tag: null,
     replied: false,
     replyText: null,
+    ts: it.ts,
   }));
 }

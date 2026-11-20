@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { readActivity } from "../lib/chain";
 import { Sigil } from "./Sigil";
+import { timeAgo } from "../lib/format";
 
 type Item = Awaited<ReturnType<typeof readActivity>>[number];
 
@@ -72,16 +73,6 @@ export function Feed({ address, contractReady, goWall }: Props) {
     );
   }
 
-  if (!address) {
-    return (
-      <div className="empty">
-        <span className="glyph">◌</span>
-        <h2>connect to read the feed</h2>
-        <p className="muted">reads are public, but the node needs an account to simulate them.</p>
-      </div>
-    );
-  }
-
   return (
     <div className="stack" style={{ gap: 16 }}>
       <header className="row" style={{ alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
@@ -149,6 +140,11 @@ export function Feed({ address, contractReady, goWall }: Props) {
                   <span className="muted" style={{ fontSize: 12 }}>
                     anonymous wrote on <span className="mono">@{target}</span>
                   </span>
+                  {it.ts ? (
+                    <span className="muted" style={{ fontSize: 12 }}>
+                      · {timeAgo(it.ts)}
+                    </span>
+                  ) : null}
                   <span className="spacer grow" />
                   <span className="muted" style={{ fontSize: 12 }}>
                     view ↗

@@ -105,6 +105,14 @@ export async function wallIdOf(handle: string): Promise<Fr> {
   return poseidon2Hash([pack(name), new Fr(name.length), new Fr(DOMAIN_WALL)]);
 }
 
+/** The posting time carried in the nonce, or null for notes written before that. */
+export function timeOfNonce(nonce: Fr): number | null {
+  const ms = Number(BigInt(nonce.toString()) >> 88n);
+  // Anything that is not a plausible timestamp means an old random nonce.
+  if (!Number.isFinite(ms) || ms < 1_700_000_000_000 || ms > Date.now() + 86_400_000) return null;
+  return ms;
+}
+
 export type DirectPost = {
   index: number;
   id: string;
@@ -115,6 +123,8 @@ export type DirectPost = {
   replyText: string | null;
   /** Public nonce, needed to build a claim that proves non-authorship. */
   nonce: string;
+  /** Posting time decoded from the nonce, when the note carries one. */
+  ts: number | null;
 };
 
 export type DirectWall = {
@@ -162,6 +172,7 @@ export async function readWallDirect(handle: string): Promise<DirectWall> {
         replied: didReply,
         replyText: didReply ? textOf([replyText]) : null,
         nonce: nonce.toString(),
+        ts: timeOfNonce(nonce),
       } satisfies DirectPost;
     }),
   );
@@ -189,6 +200,7 @@ export type DirectActivity = {
   index: number;
   text: string;
   mode: number;
+  ts: number | null;
 };
 
 export async function readActivityDirect(limit: number): Promise<DirectActivity[]> {
@@ -205,11 +217,12 @@ export async function readActivityDirect(limit: number): Promise<DirectActivity[
         readMap("activity_index", new Fr(seq)),
       ]);
       const id = await poseidon2Hash([wallRaw, new Fr(Number(indexRaw.toString()))]);
-      const [text0, length, mode, displayRaw] = await Promise.all([
+      const [text0, length, mode, displayRaw, nonce] = await Promise.all([
         readMap("post_text", id),
         readMap("post_len", id),
         readMap("post_mode", id),
         readMap("display", wallRaw),
+        readMap("post_nonce", id),
       ]);
       const text1 = await readMapOffset("post_text", id, 1);
       const text2 = await readMapOffset("post_text", id, 2);
@@ -220,6 +233,7 @@ export async function readActivityDirect(limit: number): Promise<DirectActivity[
         index: Number(indexRaw.toString()),
         text: textOf([text0, text1, text2], Number(length.toString())),
         mode: Number(mode.toString()),
+        ts: timeOfNonce(nonce),
       } satisfies DirectActivity;
     }),
   );

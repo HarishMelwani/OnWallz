@@ -9,7 +9,8 @@
 import { liveAddress, NODE_URL } from "./config";
 import { checkFogName } from "./fog";
 
-const LINKED_TAG = "0x12cd12f6659e6d1eeefaaf3cf124ae1038d59cc7a41197226096b5a9e2b86517";
+// FogLinked(Field,Field,Field): wall, claimant, label.
+const LINKED_TAG = "0x1d8e4dddd23bb444a3d61a5d23ad1581169354e2b21049c0507e23f602049b9e";
 const UNLINKED_TAG = "0x1cadabccc4d93f12079e60fd65df378cb1136f87d279dc6ab122455dddc0c2b1";
 const PAGE = 20;
 const TTL = 30_000;

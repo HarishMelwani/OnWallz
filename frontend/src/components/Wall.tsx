@@ -71,6 +71,36 @@ export function Wall({
   }, [busy]);
   const [error, setError] = useState<string | null>(null);
 
+  // Hooks must run on every render, including the "wall does not exist" branch, so
+  // ownership is computed here and the effects live above the early return.
+  const ownerNow = !!(page && snap.me && normAddress(page.owner) === snap.me.id);
+
+  useEffect(() => {
+    if (!ownerNow || !address || fogLink) return;
+    let cancelled = false;
+    (async () => {
+      const name = await primaryFogName(address);
+      if (!cancelled) setAutoFog(name);
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [ownerNow, address, fogLink]);
+
+  useEffect(() => {
+    if (!page) return;
+    let cancelled = false;
+    (async () => {
+      const { wallIdOf } = await import("../lib/direct");
+      const id = (await wallIdOf(handle)).toString();
+      const found = await verifiedFogLink(id);
+      if (!cancelled) setFogLink(found);
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [handle, page]);
+
   if (!page) {
     // No wall yet: the name has not been created by its owner.
     return (
@@ -100,7 +130,7 @@ export function Wall({
     );
   }
 
-  const isOwner = !!(snap.me && normAddress(page.owner) === snap.me.id);
+  const isOwner = ownerNow;
 
   async function refreshFogLink(): Promise<void> {
     try {
@@ -111,32 +141,6 @@ export function Wall({
       setFogLink(null);
     }
   }
-
-  useEffect(() => {
-    if (!isOwner || !address || fogLink) return;
-    let cancelled = false;
-    (async () => {
-      const name = await primaryFogName(address);
-      if (!cancelled) setAutoFog(name);
-    })().catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [isOwner, address, fogLink]);
-
-  useEffect(() => {
-    if (!page) return;
-    let cancelled = false;
-    (async () => {
-      const { wallIdOf } = await import("../lib/direct");
-      const id = (await wallIdOf(handle)).toString();
-      const found = await verifiedFogLink(id);
-      if (!cancelled) setFogLink(found);
-    })().catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [handle, page]);
 
   async function linkAuto(): Promise<void> {
     if (!autoFog) return;

@@ -445,13 +445,35 @@ export async function linkFog(wall: string, label: string, from: string) {
   const c = await contract();
   const wallet = getWallet();
   if (!wallet) throw new Error("connect a wallet first");
-  await registerFog(wallet as object);
+  console.info("[onwallz] link: registering Fog with the wallet");
+  try {
+    await registerFog(wallet as object);
+    console.info("[onwallz] link: Fog registered");
+  } catch (err) {
+    console.error("[onwallz] link: Fog registration failed", err);
+    throw err;
+  }
   const sender = AztecAddress.fromStringUnsafe(from);
   const wallField = await wallKey(wall, from);
   const call = c.methods.link_fog(wallField, packedLabel.fields[0], packedLabel.length);
+  console.info("[onwallz] link: simulating", {
+    wall: wallField.toString(),
+    label: clean,
+    from,
+  });
   try {
     await call.simulate({ from: sender });
+    console.info("[onwallz] link: simulation passed");
   } catch (err) {
+    console.error("[onwallz] link: simulation failed", err);
+    try {
+      console.error(
+        "[onwallz] link: raw error",
+        JSON.stringify(err, Object.getOwnPropertyNames(err as object)),
+      );
+    } catch {
+      console.error("[onwallz] link: raw error (unserializable)", String(err));
+    }
     throw explainRevert(err, clean);
   }
   return call.send({ from: sender, ...SEND_OPTS, ...(await feeOptions()) } as never);

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Post, Snapshot } from "../lib/types";
 import { readActivity } from "../lib/chain";
-import { hasExactWall, loadRegisteredWalls, searchWalls, type RegisteredWall } from "../lib/registry";
+import { loadRegisteredWalls, type RegisteredWall } from "../lib/registry";
+import { loadFogLinks } from "../lib/fogLink";
 import { feed, postsFor } from "../lib/store";
 import { timeAgo } from "../lib/format";
 import { Sigil } from "./Sigil";
@@ -34,12 +35,28 @@ export function Home({
   const [fogHint, setFogHint] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [walls, setWalls] = useState<RegisteredWall[]>([]);
+  const [fogByWall, setFogByWall] = useState<Map<string, string>>(new Map());
   const [target, setTarget] = useState("");
   // Only show "your wall" when a wallet is actually connected. The snapshot can
   // still hold a previous session, and that must never look like a login.
   const mine = walletConnected && snap.me ? snap.pages[snap.me.handle] ?? null : null;
 
   // The registry of walls that actually exist, so the search can only offer those.
+  useEffect(() => {
+    let cancelled = false;
+    loadFogLinks()
+      .then((links) => {
+        if (cancelled) return;
+        const map = new Map<string, string>();
+        for (const [wall, link] of links) map.set(wall, link.label);
+        setFogByWall(map);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     loadRegisteredWalls()
@@ -64,9 +81,25 @@ export function Home({
     loadRegisteredWalls(true).then(setWalls).catch(() => {});
   }, [query, walls]);
 
-  const matches = searchWalls(walls, query);
-  const exact = hasExactWall(walls, query);
+  // Walls can be found by their handle or by the .fog name they linked.
   const typed = query.trim().replace(/^@/, "");
+  const needle = typed.toLowerCase().replace(/\.fog$/, "");
+  const matches = walls
+    .filter((w) => {
+      if (!needle) return true;
+      return (
+        w.name.toLowerCase().startsWith(needle) ||
+        (fogByWall.get(w.wall) ?? "").toLowerCase().startsWith(needle)
+      );
+    })
+    .slice(0, 8);
+  const exact = walls.some((w) => {
+    if (!needle) return false;
+    return (
+      w.name.toLowerCase() === needle ||
+      (fogByWall.get(w.wall) ?? "").toLowerCase() === needle
+    );
+  });
   // Latest activity is read from the chain. The local cache could hold posts
   // written to an older contract, which then appeared here and nowhere else.
   const [recent, setRecent] = useState<Post[]>([]);
@@ -144,6 +177,7 @@ export function Home({
           }}
         >
           <input
+            className="input"
             value={handleDraft}
             onChange={(e) => setHandleDraft(e.target.value)}
             placeholder="yourname.fog"
@@ -186,9 +220,10 @@ export function Home({
       </label>
       <input
         id="wall-search"
+        className="input"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="start typing a handle"
+        placeholder="handle or fog name"
         autoCapitalize="none"
         autoCorrect="off"
         spellCheck={false}
@@ -207,6 +242,11 @@ export function Home({
                 }}
               >
                 <span className="at">@{w.name}</span>
+                {fogByWall.get(w.wall) && (
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    {fogByWall.get(w.wall)}.fog
+                  </span>
+                )}
               </button>
             ))}
           </div>

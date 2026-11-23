@@ -42,6 +42,7 @@ export function Wall({
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [fogLink, setFogLink] = useState<FogLink | null>(null);
   const [fogDraft, setFogDraft] = useState("");
+  const [fogEditing, setFogEditing] = useState(false);
   const [fogBusy, setFogBusy] = useState(false);
   const [autoFog, setAutoFog] = useState<string | null>(null);
   const [fogError, setFogError] = useState<string | null>(null);
@@ -225,35 +226,48 @@ export function Wall({
 
       {isOwner && (
         <div className="composer">
-          <div className="notice">
-            <span className="grow">
-              {fogLink
-                ? `this wall shows ${fogLink.label}.fog`
-                : "link a .fog name to show a badge. the wall keeps its own name."}
-            </span>
-            <input
-              value={fogDraft}
-              onChange={(e) => setFogDraft(e.target.value)}
-              placeholder="yourname.fog"
-              maxLength={35}
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              style={{ maxWidth: 170 }}
-            />
-            <button
-              className="btn sm"
-              disabled={fogBusy || !fogDraft.trim()}
-              onClick={() => void submitFogLink()}
-            >
-              {fogBusy ? "working…" : fogLink ? "relink" : "link"}
-            </button>
-            {fogLink && (
-              <button className="btn ghost sm" disabled={fogBusy} onClick={() => void removeFogLink()}>
-                unlink
+          {fogLink && !fogEditing ? (
+            <div className="notice">
+              <span className="grow">
+                <span className="at">{fogLink.label}.fog</span> is linked to this wall.
+              </span>
+              <button className="btn ghost sm" onClick={() => setFogEditing(true)}>
+                relink
               </button>
-            )}
-          </div>
+              <button className="btn ghost sm" disabled={fogBusy} onClick={() => void removeFogLink()}>
+                {fogBusy ? "working…" : "unlink"}
+              </button>
+            </div>
+          ) : (
+            <div className="notice">
+              <span className="grow">
+                {fogLink ? "link a different .fog name" : "link a .fog name to show a badge."}
+              </span>
+              <input
+                className="input"
+                value={fogDraft}
+                onChange={(e) => setFogDraft(e.target.value)}
+                placeholder="yourname.fog"
+                maxLength={35}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                style={{ maxWidth: 190 }}
+              />
+              <button
+                className="btn sm"
+                disabled={fogBusy || !fogDraft.trim()}
+                onClick={() => void submitFogLink().then(() => setFogEditing(false))}
+              >
+                {fogBusy ? "working…" : fogLink ? "save" : "link"}
+              </button>
+              {fogLink && (
+                <button className="btn ghost sm" disabled={fogBusy} onClick={() => setFogEditing(false)}>
+                  cancel
+                </button>
+              )}
+            </div>
+          )}
           {fogError && <div className="notice">{fogError}</div>}
         </div>
       )}

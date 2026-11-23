@@ -8,8 +8,6 @@ Live on Aztec testnet: https://onwallz.vercel.app
 
 > Your wall is controlled by the people who write on it, not by you.
 
-![The home page](docs/home.png)
-
 ![The home page in dark mode](docs/home-dark.png)
 
 ![A wall in dark mode](docs/wall-dark.png)

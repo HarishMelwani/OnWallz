@@ -25,6 +25,7 @@ import {
   VERSION_OVERRIDE,
   liveAddress,
 } from "./config";
+import { FOG_REGISTRY } from "./fog";
 
 export const APP_ID = "OnWallz";
 const APP_VERSION = "0.1.0";
@@ -125,9 +126,15 @@ function buildManifest() {
   const wall = liveAddress();
   // The sponsored testnet payer is a named contract too, so the wallet prompt still
   // lists only specific addresses.
-  const targets = [wall, FPC_ADDRESS, FEE_JUICE_ADDRESS, hasSponsor() ? SPONSOR_ADDRESS : ""].filter(
-    (a) => typeof a === "string" && a.length > 0,
-  );
+  // The Fog registry is in scope because link_fog makes a public call to it. Without
+  // this, Nulo refuses the whole transaction with a bare -32603.
+  const targets = [
+    wall,
+    FOG_REGISTRY,
+    FPC_ADDRESS,
+    FEE_JUICE_ADDRESS,
+    hasSponsor() ? SPONSOR_ADDRESS : "",
+  ].filter((a) => typeof a === "string" && a.length > 0);
   // A deploy session must reach protocol registries and publish a class, so it asks
   // for the wide grants. Normal use never does: the flag is off by default.
   const patterns: unknown = ALLOW_DEPLOY

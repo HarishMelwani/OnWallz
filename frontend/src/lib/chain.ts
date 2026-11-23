@@ -380,6 +380,13 @@ function explainRevert(err: unknown, wallName: string): Error {
   if (/label too short|label too long/i.test(raw)) {
     return new Error("a .fog name is 3 to 31 characters");
   }
+  if (/-32603|wallet could not process/i.test(raw)) {
+    return new Error(
+      "the wallet could not process this transaction. linking makes OnWallz call the Fog " +
+        "registry, so the wallet needs that contract in scope: reload the page and try again. " +
+        "if it keeps happening with Nulo, the in-app wallet has no scope limits.",
+    );
+  }
   return err instanceof Error ? err : new Error(raw);
 }
 

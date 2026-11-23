@@ -34,6 +34,15 @@ let inFlight: Promise<Map<string, FogLink>> | null = null;
 
 const decoder = new TextDecoder();
 
+/** Logs and the wallet carry the same wall id in different notations; compare as fields. */
+function wallKey(value: bigint | string): string {
+  return BigInt(value).toString();
+}
+
+function addressOf(field: string): string {
+  return "0x" + BigInt(field).toString(16).padStart(64, "0");
+}
+
 function decodePacked(value: bigint): string {
   if (value === 0n) return "";
   let hex = value.toString(16);
@@ -98,7 +107,7 @@ export async function loadFogLinks(force = false): Promise<Map<string, FogLink>>
     for (const { log, kind } of all) {
       const data = (log.logData ?? []).map((hex) => BigInt(hex));
       if (data.length < 2) continue;
-      const wall = data[1].toString();
+      const wall = wallKey(data[1]);
       if (kind === "unlink") {
         map.delete(wall);
         continue;
@@ -107,7 +116,7 @@ export async function loadFogLinks(force = false): Promise<Map<string, FogLink>>
       if (data.length < 4) continue;
       map.set(wall, {
         wall,
-        claimant: data[2].toString(),
+        claimant: addressOf(data[2].toString()),
         label: decodePacked(data[3]),
       });
     }
@@ -123,7 +132,7 @@ export async function loadFogLinks(force = false): Promise<Map<string, FogLink>>
 /** The link for a wall, but only while Fog resolves the name to the claimant. */
 export async function verifiedFogLink(wallId: string): Promise<FogLink | null> {
   const links = await loadFogLinks();
-  const link = links.get(wallId);
+  const link = links.get(wallKey(wallId));
   if (!link) return null;
   // Fog is the source of truth: an expired or transferred name stops resolving to the
   // claimant, and the badge disappears without the contract having to know.

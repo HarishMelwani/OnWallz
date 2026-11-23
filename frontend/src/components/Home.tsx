@@ -5,7 +5,7 @@ import { hasExactWall, loadRegisteredWalls, searchWalls, type RegisteredWall } f
 import { feed, postsFor } from "../lib/store";
 import { timeAgo } from "../lib/format";
 import { Sigil } from "./Sigil";
-import { checkFogName, normalizeFogLabel, FOG_SITE, FOG_MIN_LABEL } from "../lib/fog";
+import { normalizeFogLabel, FOG_SITE, FOG_MIN_LABEL } from "../lib/fog";
 
 type Props = {
   snap: Snapshot;
@@ -108,9 +108,9 @@ export function Home({
       <p className="eyebrow">create your wall</p>
       <h3 style={{ margin: 0 }}>A wall for your .fog name.</h3>
       <p className="muted" style={{ margin: 0 }}>
-        Walls follow Fog Names: whoever owns <span className="at">@you.fog</span> owns the
-        wall <span className="at">@you</span>. You cannot write on your own wall. Anyone
-        else can leave a note, anonymously, once a day. You reply there as @you.
+        Create any wall name. Later you can link a <span className="at">.fog</span> name you
+        hold and show a badge on the wall. You cannot write on your own wall. Anyone else
+        can leave a note, anonymously, once a day. You reply there as @you.
       </p>
       <a className="hint" href={FOG_SITE} target="_blank" rel="noreferrer">
         register a .fog name on Fog, free on testnet →
@@ -138,28 +138,6 @@ export function Home({
               return;
             }
             setCreating(true);
-            const gate = await checkFogName(label, address);
-            if (gate.kind === "invalid") {
-              setCreating(false);
-              setCreateError(gate.message);
-              return;
-            }
-            if (gate.kind === "other") {
-              setCreating(false);
-              setCreateError(`@${label}.fog already belongs to another account`);
-              return;
-            }
-            if (gate.kind === "owned") {
-              setFogHint(`@${label}.fog is yours`);
-            } else if (gate.kind === "unregistered") {
-              setFogHint(
-                label.length < FOG_MIN_LABEL
-                  ? `@${label}.fog is not registered, and Fog needs at least ${FOG_MIN_LABEL} characters; this wall will be a plain handle until you register it`
-                  : `@${label}.fog is not registered yet; register it on Fog to keep the name tied to you`,
-              );
-            } else {
-              setFogHint(`could not check Fog right now: ${gate.message}`);
-            }
             const err = await onCreate(label);
             setCreating(false);
             if (err) setCreateError(err);

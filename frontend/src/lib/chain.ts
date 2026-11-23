@@ -407,6 +407,16 @@ export async function writeOnWall(
 /** Link a .fog name to a wall you own. The contract asks Fog who holds it. */
 export async function linkFog(wall: string, label: string, from: string) {
   const clean = label.trim().replace(/^@/, "").replace(/\.fog$/i, "").toLowerCase();
+  const { checkFogName } = await import("./fog");
+  const gate = await checkFogName(clean, from);
+  if (gate.kind === "unregistered") throw new Error(`@${clean}.fog is not registered on Fog yet`);
+  if (gate.kind === "other") {
+    throw new Error(
+      `@${clean}.fog belongs to ${gate.owner || "another account"}, but this wallet is ${from}. ` +
+        `connect the wallet that owns the Fog name, or link from that wallet`,
+    );
+  }
+  if (gate.kind === "error") throw new Error(`could not ask Fog right now: ${gate.message}`);
   const packedLabel = packText(clean);
   const c = await contract();
   const sender = AztecAddress.fromStringUnsafe(from);

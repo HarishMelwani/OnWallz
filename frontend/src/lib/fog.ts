@@ -17,7 +17,7 @@ export type FogGate =
   | { kind: "invalid"; message: string }
   | { kind: "unregistered"; label: string }
   | { kind: "owned"; label: string; owner: string }
-  | { kind: "other"; label: string }
+  | { kind: "other"; label: string; owner: string }
   | { kind: "error"; message: string };
 
 const LABEL = /^[a-z0-9][a-z0-9-]{1,29}[a-z0-9]$/;
@@ -35,7 +35,10 @@ export function normalizeFogLabel(input: string): { label: string } | { error: s
 }
 
 let readerPromise: Promise<{
-  resolveAddress: (name: string) => Promise<{ status: string; address?: { toString(): string } }>;
+  getName: (name: string) => Promise<{
+    status: string;
+    record?: { owner?: { toString(): string } };
+  }>;
 }> | null = null;
 
 async function reader() {
@@ -51,7 +54,7 @@ async function reader() {
       AztecAddress.fromStringUnsafe(FOG_REGISTRY),
     );
     return {
-      resolveAddress: (name: string) => fog.resolveAddress(connected, name),
+      getName: (name: string) => fog.getName(connected, name),
     };
   })();
   return readerPromise;
@@ -65,14 +68,16 @@ export async function checkFogName(input: string, account: string | null): Promi
 
   try {
     const fog = await reader();
-    const result = await fog.resolveAddress(label);
-    if (result.status === "unregistered") return { kind: "unregistered", label };
-    if (result.status !== "resolved") return { kind: "other", label };
-    const owner = result.address?.toString() ?? "";
+    // Read the name record, not the forward address: a name can be active and held
+    // while its forward address is still unset, which is exactly the linking case.
+    const result = await fog.getName(label);
+    if (result.status === "unregistered" || !result.record) return { kind: "unregistered", label };
+    const owner = result.record.owner?.toString() ?? "";
+    if (!owner) return { kind: "unregistered", label };
     if (account && owner.toLowerCase() === account.toLowerCase()) {
       return { kind: "owned", label, owner };
     }
-    return { kind: "other", label };
+    return { kind: "other", label, owner };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { kind: "error", message };

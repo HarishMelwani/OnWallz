@@ -25,25 +25,22 @@ There is no signup, no email, no profile, no feed algorithm, no company holding 
 
 ## Walls and Fog Names
 
-A wall is meant for a `.fog` name. Before creating one, OnWallz asks the Fog Names
-registry on the Aztec testnet who owns the label, and refuses when it belongs to another
-account. Registering a `.fog` name is free on the Fog testnet app.
+A wall name is yours to choose. `@alice123` is a perfectly good wall.
 
-The check lives in the app, not in the contract. `create` stays private, `_publish` stays
-public and self-called, no address is stored, and the contract's split between what is
-proven privately and what is published does not change. What the check adds is a
-convention: a wall called `@alice` is created by whoever controls `alice.fog`.
+Fog is optional and additive. From your own wall you can link a `.fog` name you hold, and
+the wall shows a badge for it. The private half of `link_fog` proves you own the wall; the
+public half asks the Fog registry who holds the label and refuses unless it is the account
+that sent the call. The link is an event, not storage, so a badge costs one log, expires
+with the Fog lease, and is re-checked live whenever a visitor loads the wall. Unlinking
+emits `FogUnlinked`; the notes are untouched.
 
-**A wall can also carry a Fog badge without giving up its name.** `@alice123` may link
-`alice.fog` from the wall page. The contract proves you own the wall in private, then a
-public half asks the Fog registry who holds the name and refuses unless it is the same
-account. The link is an event, not storage, so the badge costs one log: it shows the name
-and expires with the Fog lease. Unlink it and the badge goes, the notes stay.
+Because the check is a proof, the badge means something specific: **the owner of this
+wall controls this Fog name**. It does not prove a human, and it is not needed to write or
+reply.
 
-Two honest limits. The Fog testnet registry is new and currently has no registered
-names, so most walls today are plain handles, and creation is only refused once a name
-is registered to somebody else. And labels in this build are limited to 15 characters;
-raising that to Fog's 31 needs the next contract.
+Two limits. The Fog testnet registry is young, so a link can answer "not registered" until
+the name exists. And the wallet that owns the wall must be the wallet that holds the Fog
+name; if the two differ, the link is refused and the error names both addresses.
 
 ## Why the privacy is real
 

@@ -5,6 +5,7 @@ import { timeAgo, untilTomorrow } from "../lib/format";
 import { Sigil } from "./Sigil";
 import { Composer } from "./Composer";
 import { loadFogLinks, verifiedFogLink, type FogLink } from "../lib/fogLink";
+import { primaryFogName } from "../lib/fog";
 
 type Props = {
   snap: Snapshot;
@@ -17,6 +18,7 @@ type Props = {
   onConnect: () => void;
   /** Whether the chain says this wall already has an owner. */
   wallClaimed: boolean | null;
+  address: string | null;
   onLinkFog: (handle: string, label: string) => Promise<string | null>;
   onUnlinkFog: (handle: string) => Promise<string | null>;
 };
@@ -31,6 +33,7 @@ export function Wall({
   walletConnected,
   onConnect,
   wallClaimed,
+  address,
   onLinkFog,
   onUnlinkFog,
 }: Props) {
@@ -40,6 +43,7 @@ export function Wall({
   const [fogLink, setFogLink] = useState<FogLink | null>(null);
   const [fogDraft, setFogDraft] = useState("");
   const [fogBusy, setFogBusy] = useState(false);
+  const [autoFog, setAutoFog] = useState<string | null>(null);
   const [fogError, setFogError] = useState<string | null>(null);
   // The newest note gets a brief highlight, so a landed write is unmistakable.
   const [landed, setLanded] = useState<number | null>(null);
@@ -108,6 +112,21 @@ export function Wall({
       setFogLink(null);
     }
   }
+
+  useEffect(() => {
+    if (!isOwner || !address || fogLink) return;
+    let cancelled = false;
+    (async () => {
+      const name = await primaryFogName(address);
+      if (!cancelled && name) {
+        setAutoFog(name);
+        setFogDraft(name);
+      }
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOwner, address, fogLink]);
 
   useEffect(() => {
     if (!page) return;

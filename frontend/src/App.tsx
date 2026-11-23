@@ -433,6 +433,7 @@ export default function App() {
             walletConnected={wallet.status === "connected"}
             onConnect={connect}
             wallClaimed={wallClaimed}
+            address={wallet.status === "connected" ? wallet.address : null}
             onLinkFog={linkFogName}
             onUnlinkFog={unlinkFogName}
           />

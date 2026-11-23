@@ -39,6 +39,7 @@ let readerPromise: Promise<{
     status: string;
     record?: { owner?: { toString(): string } };
   }>;
+  resolvePrimary: (address: string) => Promise<{ status: string; name?: string }>;
 }> | null = null;
 
 async function reader() {
@@ -55,6 +56,8 @@ async function reader() {
     );
     return {
       getName: (name: string) => fog.getName(connected, name),
+      resolvePrimary: (address: string) =>
+        fog.resolvePrimary(connected, AztecAddress.fromStringUnsafe(address)),
     };
   })();
   return readerPromise;
@@ -81,5 +84,22 @@ export async function checkFogName(input: string, account: string | null): Promi
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { kind: "error", message };
+  }
+}
+
+
+/**
+ * The name this address set as its primary on Fog, if any. This is the "fetch my name"
+ * path: a wall offers it instead of making the owner type the label.
+ */
+export async function primaryFogName(address: string): Promise<string | null> {
+  try {
+    const fog = await reader();
+    const result = await fog.resolvePrimary(address);
+    if (result.status !== "verified" || !result.name) return null;
+    const parsed = normalizeFogLabel(result.name);
+    return "error" in parsed ? null : parsed.label;
+  } catch {
+    return null;
   }
 }

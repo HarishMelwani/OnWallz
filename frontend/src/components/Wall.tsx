@@ -41,8 +41,6 @@ export function Wall({
   const posts = postsFor(snap, handle);
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [fogLink, setFogLink] = useState<FogLink | null>(null);
-  const [fogDraft, setFogDraft] = useState("");
-  const [fogEditing, setFogEditing] = useState(false);
   const [fogBusy, setFogBusy] = useState(false);
   const [autoFog, setAutoFog] = useState<string | null>(null);
   const [fogError, setFogError] = useState<string | null>(null);
@@ -119,10 +117,7 @@ export function Wall({
     let cancelled = false;
     (async () => {
       const name = await primaryFogName(address);
-      if (!cancelled && name) {
-        setAutoFog(name);
-        setFogDraft(name);
-      }
+      if (!cancelled) setAutoFog(name);
     })().catch(() => {});
     return () => {
       cancelled = true;
@@ -143,16 +138,16 @@ export function Wall({
     };
   }, [handle, page]);
 
-  async function submitFogLink(): Promise<void> {
+  async function linkAuto(): Promise<void> {
+    if (!autoFog) return;
     setFogBusy(true);
     setFogError(null);
-    const err = await onLinkFog(handle, fogDraft);
+    const err = await onLinkFog(handle, autoFog);
     setFogBusy(false);
     if (err) {
       setFogError(err);
       return;
     }
-    setFogDraft("");
     await loadFogLinks(true);
     await refreshFogLink();
   }
@@ -226,46 +221,33 @@ export function Wall({
 
       {isOwner && (
         <div className="composer">
-          {fogLink && !fogEditing ? (
+          {fogLink ? (
             <div className="notice">
               <span className="grow">
                 <span className="at">{fogLink.label}.fog</span> is linked to this wall.
               </span>
-              <button className="btn ghost sm" onClick={() => setFogEditing(true)}>
-                relink
-              </button>
               <button className="btn ghost sm" disabled={fogBusy} onClick={() => void removeFogLink()}>
                 {fogBusy ? "working…" : "unlink"}
+              </button>
+            </div>
+          ) : autoFog ? (
+            <div className="notice">
+              <span className="grow">
+                found <span className="at">{autoFog}.fog</span> for this wallet.
+              </span>
+              <button className="btn sm" disabled={fogBusy} onClick={() => void linkAuto()}>
+                {fogBusy ? "working…" : "link"}
               </button>
             </div>
           ) : (
             <div className="notice">
               <span className="grow">
-                {fogLink ? "link a different .fog name" : "link a .fog name to show a badge."}
+                no primary <span className="at">.fog</span> name found for this wallet. register
+                one, or set an existing name as your primary on Fog, then reload.
               </span>
-              <input
-                className="input"
-                value={fogDraft}
-                onChange={(e) => setFogDraft(e.target.value)}
-                placeholder="yourname.fog"
-                maxLength={35}
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                style={{ maxWidth: 190 }}
-              />
-              <button
-                className="btn sm"
-                disabled={fogBusy || !fogDraft.trim()}
-                onClick={() => void submitFogLink().then(() => setFogEditing(false))}
-              >
-                {fogBusy ? "working…" : fogLink ? "save" : "link"}
-              </button>
-              {fogLink && (
-                <button className="btn ghost sm" disabled={fogBusy} onClick={() => setFogEditing(false)}>
-                  cancel
-                </button>
-              )}
+              <a className="btn sm" href="https://fog-testnet.huantian233.workers.dev/#/" target="_blank" rel="noreferrer">
+                register at Fog
+              </a>
             </div>
           )}
           {fogError && <div className="notice">{fogError}</div>}

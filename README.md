@@ -10,6 +10,8 @@ Live on Aztec testnet: https://onwallz.vercel.app
 
 ![The home page](docs/home.png)
 
+![The home page in dark mode](docs/home-dark.png)
+
 ![A wall in dark mode](docs/wall-dark.png)
 
 ## What it is

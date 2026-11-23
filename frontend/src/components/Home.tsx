@@ -139,11 +139,16 @@ export function Home({
   const createPanel = (
     <div className="card pad stack" style={{ gap: 12 }}>
       <p className="eyebrow">create your wall</p>
-      <h3 style={{ margin: 0 }}>A wall for your .fog name.</h3>
+      <h3 style={{ margin: 0 }}>One wall, and anyone can write to you.</h3>
       <p className="muted" style={{ margin: 0 }}>
-        Create any wall name. Later you can link a <span className="at">.fog</span> name you
-        hold and show a badge on the wall. You cannot write on your own wall. Anyone else
-        can leave a note, anonymously, once a day. You reply there as @you.
+        Your wall is yours to keep. Other people can leave one note a day, and nothing on
+        chain says who wrote it. You cannot write on your own wall, but you reply there as
+        yourself, so it reads like a page of letters with your answers underneath. Pick any
+        name you like.
+      </p>
+      <p className="muted" style={{ margin: 0 }}>
+        When you want to be recognised, link a <span className="at">.fog</span> name you
+        hold and the wall shows a FogVerified badge.
       </p>
       <a className="hint" href={FOG_SITE} target="_blank" rel="noreferrer">
         register a .fog name on Fog, free on testnet →

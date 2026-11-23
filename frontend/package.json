@@ -1,0 +1,33 @@
+{
+  "name": "onwallz",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@alejoamiras/private-fee-juice": "6.0.0",
+    "@aztec-labs/aztec.js": "^6.0.0",
+    "@aztec-labs/foundation": "^6.0.0",
+    "@aztec-labs/stdlib": "^6.0.0",
+    "@aztec-labs/wallet-sdk": "^6.0.0",
+    "@aztec-labs/wallets": "6.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite-plugin-node-polyfills": "^0.28.0",
+    "@aztec-labs/constants": "^6.0.0",
+    "@aztec-labs/noir-contracts.js": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  },
+  "description": "OnWallz \u2014 anonymous public walls on Aztec"
+}

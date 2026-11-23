@@ -412,23 +412,7 @@ export async function writeOnWall(
   return call.send({ from: sender, ...SEND_OPTS, ...(await feeOptions()) } as never);
 }
 
-/** Fog is a third contract; the wallet must know it before it can simulate a call to it. */
-const fogRegistered = new WeakMap<object, boolean>();
-
-async function registerFog(wallet: object): Promise<void> {
-  if (fogRegistered.get(wallet)) return;
-  const { createAztecNodeClient } = await import("@aztec-labs/aztec.js/node");
-  const node = createAztecNodeClient(config.NODE_URL);
-  const instance = await node.getContract(AztecAddress.fromStringUnsafe(FOG_REGISTRY));
-  if (!instance) throw new Error("the Fog registry is not on this network");
-  const { NameRegistryV8ContractArtifact } = await import("fog-sdk/contracts/v8");
-  await (wallet as unknown as {
-    registerContract(i: unknown, a: unknown): Promise<void>;
-  }).registerContract(instance, NameRegistryV8ContractArtifact);
-  fogRegistered.set(wallet, true);
-}
-
-/** Link a .fog name to a wall you own. The contract asks Fog who holds it. */
+/** Link a .fog name to a wall you own. The contract records the claim; clients verify it against Fog. */
 export async function linkFog(wall: string, label: string, from: string) {
   const clean = label.trim().replace(/^@/, "").replace(/\.fog$/i, "").toLowerCase();
   const { checkFogName } = await import("./fog");
@@ -443,16 +427,6 @@ export async function linkFog(wall: string, label: string, from: string) {
   if (gate.kind === "error") throw new Error(`could not ask Fog right now: ${gate.message}`);
   const packedLabel = packText(clean);
   const c = await contract();
-  const wallet = getWallet();
-  if (!wallet) throw new Error("connect a wallet first");
-  console.info("[onwallz] link: registering Fog with the wallet");
-  try {
-    await registerFog(wallet as object);
-    console.info("[onwallz] link: Fog registered");
-  } catch (err) {
-    console.error("[onwallz] link: Fog registration failed", err);
-    throw err;
-  }
   const sender = AztecAddress.fromStringUnsafe(from);
   const wallField = await wallKey(wall, from);
   const call = c.methods.link_fog(wallField, packedLabel.fields[0], packedLabel.length);

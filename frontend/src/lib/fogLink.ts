@@ -17,10 +17,7 @@ const TTL = 30_000;
 export type FogLink = {
   wall: string;
   claimant: string;
-  node: string;
   label: string;
-  /** Unix seconds, as Fog reports it. */
-  expiresAt: number;
 };
 
 type Log = {
@@ -105,14 +102,12 @@ export async function loadFogLinks(force = false): Promise<Map<string, FogLink>>
         map.delete(wall);
         continue;
       }
-      // [tag, wall, claimant, node, expires_at, label]
-      if (data.length < 6) continue;
+      // [tag, wall, claimant, label]
+      if (data.length < 4) continue;
       map.set(wall, {
         wall,
         claimant: data[2].toString(),
-        node: data[3].toString(),
-        expiresAt: Number(data[4]),
-        label: decodePacked(data[5]),
+        label: decodePacked(data[3]),
       });
     }
     cache = map;
@@ -124,12 +119,13 @@ export async function loadFogLinks(force = false): Promise<Map<string, FogLink>>
   return inFlight;
 }
 
-/** The link for a wall, but only while Fog still resolves the name to the claimant. */
+/** The link for a wall, but only while Fog resolves the name to the claimant. */
 export async function verifiedFogLink(wallId: string): Promise<FogLink | null> {
   const links = await loadFogLinks();
   const link = links.get(wallId);
   if (!link) return null;
-  if (link.expiresAt * 1000 < Date.now()) return null;
+  // Fog is the source of truth: an expired or transferred name stops resolving to the
+  // claimant, and the badge disappears without the contract having to know.
   const gate = await checkFogName(link.label, link.claimant);
   if (gate.kind !== "owned") return null;
   return link;

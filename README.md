@@ -28,15 +28,16 @@ There is no signup, no email, no profile, no feed algorithm, no company holding 
 A wall name is yours to choose. `@alice123` is a perfectly good wall.
 
 Fog is optional and additive. From your own wall you can link a `.fog` name you hold, and
-the wall shows a badge for it. The private half of `link_fog` proves you own the wall; the
-public half asks the Fog registry who holds the label and refuses unless it is the account
-that sent the call. The link is an event, not storage, so a badge costs one log, expires
-with the Fog lease, and is re-checked live whenever a visitor loads the wall. Unlinking
-emits `FogUnlinked`; the notes are untouched.
+the wall shows a badge for it. The private half of `link_fog` proves you own the wall and
+records your address as the claimant; the contract does not call Fog. Readers do: the
+client resolves the label on Fog and only shows the badge while Fog still names the
+claimant as the owner. A link is an event, so it costs one log, and it stops showing the
+moment the name transfers or expires.
 
-Because the check is a proof, the badge means something specific: **the owner of this
-wall controls this Fog name**. It does not prove a human, and it is not needed to write or
-reply.
+That split is deliberate. A call from OnWallz into the Fog contract made the transaction
+depend on the wallet simulating a third contract, which some wallets refuse. The claim is
+still checkable by anyone, because Fog is public, and a false claim never renders as a
+badge.
 
 Two limits. The Fog testnet registry is young, so a link can answer "not registered" until
 the name exists. And the wallet that owns the wall must be the wallet that holds the Fog

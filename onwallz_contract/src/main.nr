@@ -13,8 +13,7 @@
 ///     the author's secret nullifier key.
 #[aztec::macros::aztec]
 pub contract OnWallz {
-    use fog_interface::FogRegistry;
-    use aztec::{
+        use aztec::{
         keys::getters::get_public_keys,
         macros::{
             events::event,
@@ -35,9 +34,6 @@ pub contract OnWallz {
     // Domain separators, so no two hashes in this contract can collide.
     global DOMAIN_DAILY: Field = 0x44415931;
     global DOMAIN_WALL: Field = 0x57414c4c;
-    // Fog Names hashes a label with its own separators; these are the v8 values.
-    global DOMAIN_FOG_LABEL: Field = 0x414e535f4c4142454c5f5631;
-    global DOMAIN_FOG_NODE: Field = 0x414e535f4e4f44455f5631;
 
     /// A note is up to 32 fields of 31 bytes each, so 992 bytes of text. Notes that fit
     /// in three fields (93 bytes) keep their text in public storage; longer ones put it
@@ -71,13 +67,13 @@ pub contract OnWallz {
         wall: Field,
     }
 
-    /// A wall linked to a .fog name. The claimant is public on purpose: it is the badge.
+    /// A wall linked to a .fog name by its owner. This is an attestation, not a proof:
+    /// clients check it against the Fog registry, which owns the truth, and never show a
+    /// badge whose name does not resolve to the claimant.
     #[event]
     struct FogLinked {
         wall: Field,
         claimant: Field,
-        node: Field,
-        expires_at: u64,
         label: Field,
     }
 
@@ -138,15 +134,11 @@ pub contract OnWallz {
         replied: Map<Field, PublicImmutable<bool, Context>, Context>,
         // post id -> the owner's reply text
         reply_text: Map<Field, PublicMutable<Field, Context>, Context>,
-        // The Fog registry this deployment checks against, fixed at construction.
-        fog_registry: PublicImmutable<AztecAddress, Context>,
     }
 
-    #[external("public")]
+    #[external("private")]
     #[initializer]
-    fn constructor(fog_registry: AztecAddress) {
-        self.storage.fog_registry.initialize(fog_registry);
-    }
+    fn constructor() {}
 
     /// Create your own wall. The name must be free.
     ///
@@ -437,14 +429,10 @@ pub contract OnWallz {
     #[only_self]
     fn _link_fog(wall: Field, label: Field, label_len: u8, claimant: Field) {
         assert(self.storage.exists.at(wall).read(), "no such wall");
-        let key = poseidon2_hash_with_separator([label_len as Field, label], DOMAIN_FOG_LABEL);
-        let node = poseidon2_hash_with_separator([0, key], DOMAIN_FOG_NODE);
-        let fog = self.storage.fog_registry.read();
-        let record = self.view(FogRegistry::at(fog).get_name(node));
-        assert(record.generation > 0, "that name is not registered");
-        assert(record.owner.to_field() == claimant, "that name belongs to another account");
-        assert(record.expires_at > self.context.timestamp(), "that name has expired");
-        self.emit(FogLinked { wall, claimant, node, expires_at: record.expires_at, label });
+        // The contract records the claim and leaves the verification to readers, who can
+        // see Fog. That keeps a link as cheap and as ordinary as a write, and wallet
+        // support does not depend on simulating a third contract.
+        self.emit(FogLinked { wall, claimant, label });
     }
 
     /// Remove the link from your wall. The badge disappears, the notes stay.

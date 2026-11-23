@@ -1,19 +1,11 @@
 use aztec::protocol::address::AztecAddress;
-use aztec::protocol::traits::ToField;
 use aztec::test::helpers::test_environment::TestEnvironment;
 use onwallz_contract::OnWallz;
-use fog_mock::FogMock;
 
-/// Fog v8 node for "harish", computed with the Fog SDK. The contract must reproduce it.
-global NODE_HARISH: Field = 2169237630768016454077658086689784989111866322637566900594493712904378372362;
 global PACKED_HARISH: Field = 184424648671776712915072915417628952194365578892730051071736168824505892864;
-global NODE_ALICE: Field = 13688961148442406481502259585661577532664524571172222440743001125034804527366;
-global PACKED_ALICE: Field = 172132395150822576935323186900070864388297289487522332707473775746969763840;
-global FAR_EXPIRY: u64 = 4294967295;
 
 unconstrained fn setup() -> (
     TestEnvironment,
-    AztecAddress,
     AztecAddress,
     AztecAddress,
     AztecAddress,
@@ -22,16 +14,10 @@ unconstrained fn setup() -> (
     let deployer = env.create_light_account();
     let alice = env.create_light_account();
     let bob = env.create_light_account();
-    let fog = env
-        .deploy("@fog_mock/FogMock")
-        .with_public_initializer(deployer, FogMock::interface().constructor());
-    // harish.fog belongs to alice, alice.fog belongs to bob, so both paths are tested.
-    env.call_public(deployer, FogMock::at(fog).set(NODE_HARISH, alice.to_field(), 1, FAR_EXPIRY));
-    env.call_public(deployer, FogMock::at(fog).set(NODE_ALICE, bob.to_field(), 1, FAR_EXPIRY));
     let address = env
         .deploy("@onwallz_contract/OnWallz")
-        .with_public_initializer(deployer, OnWallz::interface().constructor(fog));
-    (env, alice, bob, address, fog)
+        .with_private_initializer(deployer, OnWallz::interface().constructor());
+    (env, alice, bob, address)
 }
 
 fn name_of_harish() -> (Field, u8) {
@@ -40,7 +26,7 @@ fn name_of_harish() -> (Field, u8) {
 
 #[test]
 unconstrained fn test_create_makes_an_empty_wall() {
-    let (mut env, alice, _bob, address, _fog) = setup();
+    let (mut env, alice, _bob, address) = setup();
     let (n, len) = name_of_harish();
     let wall = env.view_public(OnWallz::at(address).wall_id(n, len));
 
@@ -53,7 +39,7 @@ unconstrained fn test_create_makes_an_empty_wall() {
 
 #[test(should_fail)]
 unconstrained fn test_a_name_can_only_be_created_once() {
-    let (mut env, alice, bob, address, _fog) = setup();
+    let (mut env, alice, bob, address) = setup();
     let (n, len) = name_of_harish();
     env.call_private(alice, OnWallz::at(address).create(n, len));
     env.call_private(bob, OnWallz::at(address).create(n, len));
@@ -61,14 +47,14 @@ unconstrained fn test_a_name_can_only_be_created_once() {
 
 #[test(should_fail)]
 unconstrained fn test_cannot_write_on_a_wall_that_does_not_exist() {
-    let (mut env, _alice, bob, address, _fog) = setup();
+    let (mut env, _alice, bob, address) = setup();
     let (n, len) = name_of_harish();
     env.call_private(bob, OnWallz::at(address).write([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 1, 11, n, len));
 }
 
 #[test(should_fail)]
 unconstrained fn test_owner_cannot_write_on_their_own_wall() {
-    let (mut env, alice, _bob, address, _fog) = setup();
+    let (mut env, alice, _bob, address) = setup();
     let (n, len) = name_of_harish();
     env.call_private(alice, OnWallz::at(address).create(n, len));
     env.call_private(alice, OnWallz::at(address).write([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 1, 12, n, len));
@@ -76,7 +62,7 @@ unconstrained fn test_owner_cannot_write_on_their_own_wall() {
 
 #[test]
 unconstrained fn test_a_stranger_writes_anonymously() {
-    let (mut env, alice, bob, address, _fog) = setup();
+    let (mut env, alice, bob, address) = setup();
     let (n, len) = name_of_harish();
     let wall = env.view_public(OnWallz::at(address).wall_id(n, len));
     env.call_private(alice, OnWallz::at(address).create(n, len));
@@ -93,7 +79,7 @@ unconstrained fn test_a_stranger_writes_anonymously() {
 
 #[test]
 unconstrained fn test_a_note_records_block_time() {
-    let (mut env, alice, bob, address, _fog) = setup();
+    let (mut env, alice, bob, address) = setup();
     let (n, len) = name_of_harish();
     let wall = env.view_public(OnWallz::at(address).wall_id(n, len));
     env.call_private(alice, OnWallz::at(address).create(n, len));
@@ -105,7 +91,7 @@ unconstrained fn test_a_note_records_block_time() {
 
 #[test]
 unconstrained fn test_owner_replies_on_their_wall() {
-    let (mut env, alice, bob, address, _fog) = setup();
+    let (mut env, alice, bob, address) = setup();
     let (n, len) = name_of_harish();
     let wall = env.view_public(OnWallz::at(address).wall_id(n, len));
     env.call_private(alice, OnWallz::at(address).create(n, len));
@@ -121,7 +107,7 @@ unconstrained fn test_owner_replies_on_their_wall() {
 
 #[test(should_fail)]
 unconstrained fn test_stranger_cannot_reply_as_the_owner() {
-    let (mut env, alice, bob, address, _fog) = setup();
+    let (mut env, alice, bob, address) = setup();
     let (n, len) = name_of_harish();
     let wall = env.view_public(OnWallz::at(address).wall_id(n, len));
     env.call_private(alice, OnWallz::at(address).create(n, len));
@@ -133,7 +119,7 @@ unconstrained fn test_stranger_cannot_reply_as_the_owner() {
 
 #[test]
 unconstrained fn test_author_can_tombstone_and_text_is_kept() {
-    let (mut env, alice, bob, address, _fog) = setup();
+    let (mut env, alice, bob, address) = setup();
     let (n, len) = name_of_harish();
     let wall = env.view_public(OnWallz::at(address).wall_id(n, len));
     env.call_private(alice, OnWallz::at(address).create(n, len));
@@ -150,7 +136,7 @@ unconstrained fn test_author_can_tombstone_and_text_is_kept() {
 
 #[test(should_fail)]
 unconstrained fn test_a_stranger_cannot_tombstone_someone_elses_note() {
-    let (mut env, alice, bob, address, _fog) = setup();
+    let (mut env, alice, bob, address) = setup();
     let carol = env.create_light_account();
     let (n, len) = name_of_harish();
     let wall = env.view_public(OnWallz::at(address).wall_id(n, len));
@@ -163,7 +149,7 @@ unconstrained fn test_a_stranger_cannot_tombstone_someone_elses_note() {
 
 #[test]
 unconstrained fn test_activity_log_orders_walls() {
-    let (mut env, _alice, bob, address, _fog) = setup();
+    let (mut env, _alice, bob, address) = setup();
     let carol = env.create_light_account();
     let n1: Field = 0x6f6e65; // "one"
     let l1: u8 = 3;
@@ -188,7 +174,7 @@ unconstrained fn test_activity_log_orders_walls() {
 
 #[test]
 unconstrained fn test_a_long_note_keeps_its_text_out_of_public_storage() {
-    let (mut env, alice, bob, address, _fog) = setup();
+    let (mut env, alice, bob, address) = setup();
     let (n, len) = name_of_harish();
     let wall = env.view_public(OnWallz::at(address).wall_id(n, len));
     env.call_private(alice, OnWallz::at(address).create(n, len));
@@ -206,7 +192,7 @@ unconstrained fn test_a_long_note_keeps_its_text_out_of_public_storage() {
 
 #[test]
 unconstrained fn test_a_short_note_still_keeps_its_text_in_storage() {
-    let (mut env, alice, bob, address, _fog) = setup();
+    let (mut env, alice, bob, address) = setup();
     let (n, len) = name_of_harish();
     let wall = env.view_public(OnWallz::at(address).wall_id(n, len));
     env.call_private(alice, OnWallz::at(address).create(n, len));
@@ -218,7 +204,7 @@ unconstrained fn test_a_short_note_still_keeps_its_text_in_storage() {
 
 #[test]
 unconstrained fn test_owner_links_a_fog_name() {
-    let (mut env, alice, _bob, address, _fog) = setup();
+    let (mut env, alice, _bob, address) = setup();
     env.call_private(alice, OnWallz::at(address).create(PACKED_HARISH, 6));
     let wall = env.view_public(OnWallz::at(address).wall_id(PACKED_HARISH, 6));
     env.call_private(alice, OnWallz::at(address).link_fog(wall, PACKED_HARISH, 6));
@@ -227,17 +213,9 @@ unconstrained fn test_owner_links_a_fog_name() {
 
 #[test(should_fail)]
 unconstrained fn test_a_stranger_cannot_link_a_fog_name() {
-    let (mut env, alice, bob, address, _fog) = setup();
+    let (mut env, alice, bob, address) = setup();
     env.call_private(alice, OnWallz::at(address).create(PACKED_HARISH, 6));
     let wall = env.view_public(OnWallz::at(address).wall_id(PACKED_HARISH, 6));
     env.call_private(bob, OnWallz::at(address).link_fog(wall, PACKED_HARISH, 6));
 }
 
-#[test(should_fail)]
-unconstrained fn test_cannot_link_someone_elses_fog_name() {
-    let (mut env, alice, _bob, address, _fog) = setup();
-    // alice.fog belongs to bob, so alice cannot use it as her badge.
-    env.call_private(alice, OnWallz::at(address).create(PACKED_ALICE, 5));
-    let wall = env.view_public(OnWallz::at(address).wall_id(PACKED_ALICE, 5));
-    env.call_private(alice, OnWallz::at(address).link_fog(wall, PACKED_ALICE, 5));
-}

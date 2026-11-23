@@ -1,2 +1,2 @@
 [workspace]
-members = ["onwallz_contract", "onwallz_test"]
+members = ["onwallz_contract", "onwallz_test", "fog_interface", "fog_mock"]

@@ -23,6 +23,28 @@ A public wall for a handle, and an anonymous note for anyone who visits it.
 
 There is no signup, no email, no profile, no feed algorithm, no company holding the notes. The wallet is the account, and the chain is the database.
 
+## Walls and Fog Names
+
+A wall is meant for a `.fog` name. Before creating one, OnWallz asks the Fog Names
+registry on the Aztec testnet who owns the label, and refuses when it belongs to another
+account. Registering a `.fog` name is free on the Fog testnet app.
+
+The check lives in the app, not in the contract. `create` stays private, `_publish` stays
+public and self-called, no address is stored, and the contract's split between what is
+proven privately and what is published does not change. What the check adds is a
+convention: a wall called `@alice` is created by whoever controls `alice.fog`.
+
+**A wall can also carry a Fog badge without giving up its name.** `@alice123` may link
+`alice.fog` from the wall page. The contract proves you own the wall in private, then a
+public half asks the Fog registry who holds the name and refuses unless it is the same
+account. The link is an event, not storage, so the badge costs one log: it shows the name
+and expires with the Fog lease. Unlink it and the badge goes, the notes stay.
+
+Two honest limits. The Fog testnet registry is new and currently has no registered
+names, so most walls today are plain handles, and creation is only refused once a name
+is registered to somebody else. And labels in this build are limited to 15 characters;
+raising that to Fog's 31 needs the next contract.
+
 ## Why the privacy is real
 
 Most "private" social apps keep a database of who said what and promise not to look. OnWallz has no such database, because the contract has no field to put it in. Not a hidden field, not an admin-only one. The data does not exist.

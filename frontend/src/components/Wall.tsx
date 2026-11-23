@@ -4,6 +4,7 @@ import { canWrite, normAddress, postsFor } from "../lib/store";
 import { timeAgo, untilTomorrow } from "../lib/format";
 import { Sigil } from "./Sigil";
 import { Composer } from "./Composer";
+import { loadFogLinks, verifiedFogLink, type FogLink } from "../lib/fogLink";
 
 type Props = {
   snap: Snapshot;
@@ -16,6 +17,8 @@ type Props = {
   onConnect: () => void;
   /** Whether the chain says this wall already has an owner. */
   wallClaimed: boolean | null;
+  onLinkFog: (handle: string, label: string) => Promise<string | null>;
+  onUnlinkFog: (handle: string) => Promise<string | null>;
 };
 
 export function Wall({
@@ -28,10 +31,16 @@ export function Wall({
   walletConnected,
   onConnect,
   wallClaimed,
+  onLinkFog,
+  onUnlinkFog,
 }: Props) {
   const page = snap.pages[handle];
   const posts = postsFor(snap, handle);
   const [replyTo, setReplyTo] = useState<string | null>(null);
+  const [fogLink, setFogLink] = useState<FogLink | null>(null);
+  const [fogDraft, setFogDraft] = useState("");
+  const [fogBusy, setFogBusy] = useState(false);
+  const [fogError, setFogError] = useState<string | null>(null);
   // The newest note gets a brief highlight, so a landed write is unmistakable.
   const [landed, setLanded] = useState<number | null>(null);
   const prevCount = useRef(posts.length);
@@ -89,6 +98,57 @@ export function Wall({
   }
 
   const isOwner = !!(snap.me && normAddress(page.owner) === snap.me.id);
+
+  async function refreshFogLink(): Promise<void> {
+    try {
+      const { wallIdOf } = await import("../lib/direct");
+      const id = (await wallIdOf(handle)).toString();
+      setFogLink(await verifiedFogLink(id));
+    } catch {
+      setFogLink(null);
+    }
+  }
+
+  useEffect(() => {
+    if (!page) return;
+    let cancelled = false;
+    (async () => {
+      const { wallIdOf } = await import("../lib/direct");
+      const id = (await wallIdOf(handle)).toString();
+      const found = await verifiedFogLink(id);
+      if (!cancelled) setFogLink(found);
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [handle, page]);
+
+  async function submitFogLink(): Promise<void> {
+    setFogBusy(true);
+    setFogError(null);
+    const err = await onLinkFog(handle, fogDraft);
+    setFogBusy(false);
+    if (err) {
+      setFogError(err);
+      return;
+    }
+    setFogDraft("");
+    await loadFogLinks(true);
+    await refreshFogLink();
+  }
+
+  async function removeFogLink(): Promise<void> {
+    setFogBusy(true);
+    setFogError(null);
+    const err = await onUnlinkFog(handle);
+    setFogBusy(false);
+    if (err) {
+      setFogError(err);
+      return;
+    }
+    await loadFogLinks(true);
+    setFogLink(null);
+  }
   const check = canWrite(snap, handle);
 
 
@@ -132,9 +192,52 @@ export function Wall({
               {posts.length} {posts.length === 1 ? "note" : "notes"}
             </span>
             {isOwner && <span className="chip accent">yours</span>}
+            {fogLink && (
+              <span
+                className="chip mono"
+                title={`proved control of ${fogLink.label}.fog, verified by the Fog registry`}
+              >
+                fog · {fogLink.label}
+              </span>
+            )}
           </div>
         </div>
       </div>
+
+      {isOwner && (
+        <div className="composer">
+          <div className="notice">
+            <span className="grow">
+              {fogLink
+                ? `this wall shows ${fogLink.label}.fog.`
+                : "link a .fog name to show a badge. the wall keeps its own name."}
+            </span>
+            <input
+              value={fogDraft}
+              onChange={(e) => setFogDraft(e.target.value)}
+              placeholder="yourname.fog"
+              maxLength={35}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              style={{ maxWidth: 170 }}
+            />
+            <button
+              className="btn sm"
+              disabled={fogBusy || !fogDraft.trim()}
+              onClick={() => void submitFogLink()}
+            >
+              {fogBusy ? "working…" : fogLink ? "relink" : "link"}
+            </button>
+            {fogLink && (
+              <button className="btn ghost sm" disabled={fogBusy} onClick={() => void removeFogLink()}>
+                unlink
+              </button>
+            )}
+          </div>
+          {fogError && <div className="notice">{fogError}</div>}
+        </div>
+      )}
 
       {!isOwner && !walletConnected && (
         <div className="composer">

@@ -5,3 +5,4 @@ type = "lib"
 [dependencies]
 aztec = { git="https://github.com/aztec-labs-eng/aztec-nr", tag="v6.0.0", directory="aztec" }
 onwallz_contract = { path = "../onwallz_contract" }
+fog_mock = { path = "../fog_mock" }

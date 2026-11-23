@@ -13,6 +13,7 @@
 ///     the author's secret nullifier key.
 #[aztec::macros::aztec]
 pub contract OnWallz {
+    use fog_interface::FogRegistry;
     use aztec::{
         keys::getters::get_public_keys,
         macros::{
@@ -25,7 +26,7 @@ pub contract OnWallz {
         note::{note_getter_options::NoteGetterOptions, note_viewer_options::NoteViewerOptions},
         protocol::{
             address::AztecAddress,
-            hash::poseidon2_hash,
+            hash::{poseidon2_hash, poseidon2_hash_with_separator},
             traits::{Packable, ToField},
         },
         state_vars::{Map, Owned, PrivateSet, PublicImmutable, PublicMutable},
@@ -34,6 +35,9 @@ pub contract OnWallz {
     // Domain separators, so no two hashes in this contract can collide.
     global DOMAIN_DAILY: Field = 0x44415931;
     global DOMAIN_WALL: Field = 0x57414c4c;
+    // Fog Names hashes a label with its own separators; these are the v8 values.
+    global DOMAIN_FOG_LABEL: Field = 0x414e535f4c4142454c5f5631;
+    global DOMAIN_FOG_NODE: Field = 0x414e535f4e4f44455f5631;
 
     /// A note is up to 32 fields of 31 bytes each, so 992 bytes of text. Notes that fit
     /// in three fields (93 bytes) keep their text in public storage; longer ones put it
@@ -64,6 +68,21 @@ pub contract OnWallz {
     /// A wall was created by its owner.
     #[event]
     struct Created {
+        wall: Field,
+    }
+
+    /// A wall linked to a .fog name. The claimant is public on purpose: it is the badge.
+    #[event]
+    struct FogLinked {
+        wall: Field,
+        claimant: Field,
+        node: Field,
+        expires_at: u64,
+        label: Field,
+    }
+
+    #[event]
+    struct FogUnlinked {
         wall: Field,
     }
 
@@ -119,11 +138,15 @@ pub contract OnWallz {
         replied: Map<Field, PublicImmutable<bool, Context>, Context>,
         // post id -> the owner's reply text
         reply_text: Map<Field, PublicMutable<Field, Context>, Context>,
+        // The Fog registry this deployment checks against, fixed at construction.
+        fog_registry: PublicImmutable<AztecAddress, Context>,
     }
 
-    #[external("private")]
+    #[external("public")]
     #[initializer]
-    fn constructor() {}
+    fn constructor(fog_registry: AztecAddress) {
+        self.storage.fog_registry.initialize(fog_registry);
+    }
 
     /// Create your own wall. The name must be free.
     ///
@@ -384,6 +407,67 @@ pub contract OnWallz {
             self.storage.activity_post.at(seq).read(),
             self.storage.activity_index.at(seq).read(),
         )
+    }
+
+    /// Link a .fog name to this wall.
+    ///
+    /// The private half proves you own the wall. The public half asks the Fog registry
+    /// who holds the name and refuses unless it is the address that sent this call, so
+    /// a caller cannot attach somebody else's name. Nothing here decides what your wall
+    /// is called: `@alice123` may hold `alice.fog`.
+    #[external("private")]
+    fn link_fog(wall: Field, label: Field, label_len: u8) {
+        assert(label_len >= 3, "label too short");
+        assert(label_len as u32 <= 31, "label too long");
+        let me = self.msg_sender();
+        let notes = self.storage.names.at(me).get_notes(NoteGetterOptions::new());
+        let mut owned = false;
+        for i in 0..10 {
+            if i < notes.len() {
+                if notes.get_unchecked(i).note.name == wall {
+                    owned = true;
+                }
+            }
+        }
+        assert(owned, "only the wall owner can link a name");
+        self.enqueue(OnWallz::at(self.address)._link_fog(wall, label, label_len, me.to_field()));
+    }
+
+    #[external("public")]
+    #[only_self]
+    fn _link_fog(wall: Field, label: Field, label_len: u8, claimant: Field) {
+        assert(self.storage.exists.at(wall).read(), "no such wall");
+        let key = poseidon2_hash_with_separator([label_len as Field, label], DOMAIN_FOG_LABEL);
+        let node = poseidon2_hash_with_separator([0, key], DOMAIN_FOG_NODE);
+        let fog = self.storage.fog_registry.read();
+        let record = self.view(FogRegistry::at(fog).get_name(node));
+        assert(record.generation > 0, "that name is not registered");
+        assert(record.owner.to_field() == claimant, "that name belongs to another account");
+        assert(record.expires_at > self.context.timestamp(), "that name has expired");
+        self.emit(FogLinked { wall, claimant, node, expires_at: record.expires_at, label });
+    }
+
+    /// Remove the link from your wall. The badge disappears, the notes stay.
+    #[external("private")]
+    fn unlink_fog(wall: Field) {
+        let me = self.msg_sender();
+        let notes = self.storage.names.at(me).get_notes(NoteGetterOptions::new());
+        let mut owned = false;
+        for i in 0..10 {
+            if i < notes.len() {
+                if notes.get_unchecked(i).note.name == wall {
+                    owned = true;
+                }
+            }
+        }
+        assert(owned, "only the wall owner can unlink a name");
+        self.enqueue(OnWallz::at(self.address)._unlink_fog(wall));
+    }
+
+    #[external("public")]
+    #[only_self]
+    fn _unlink_fog(wall: Field) {
+        self.emit(FogUnlinked { wall });
     }
 
     /// The wall a wallet owns, as a packed handle, or 0 if it owns none.

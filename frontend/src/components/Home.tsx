@@ -5,6 +5,7 @@ import { hasExactWall, loadRegisteredWalls, searchWalls, type RegisteredWall } f
 import { feed, postsFor } from "../lib/store";
 import { timeAgo } from "../lib/format";
 import { Sigil } from "./Sigil";
+import { checkFogName, normalizeFogLabel, FOG_SITE, FOG_MIN_LABEL } from "../lib/fog";
 
 type Props = {
   snap: Snapshot;
@@ -30,6 +31,7 @@ export function Home({
   const [handleDraft, setHandleDraft] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [fogHint, setFogHint] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [walls, setWalls] = useState<RegisteredWall[]>([]);
   const [target, setTarget] = useState("");
@@ -104,11 +106,15 @@ export function Home({
   const createPanel = (
     <div className="card pad stack" style={{ gap: 12 }}>
       <p className="eyebrow">create your wall</p>
-      <h3 style={{ margin: 0 }}>Your wall is yours from the start.</h3>
+      <h3 style={{ margin: 0 }}>A wall for your .fog name.</h3>
       <p className="muted" style={{ margin: 0 }}>
-        Claim your handle once. You cannot write on your own wall. Anyone else can leave
-        a note, anonymously, once a day. You reply there as @you.
+        Walls follow Fog Names: whoever owns <span className="at">@you.fog</span> owns the
+        wall <span className="at">@you</span>. You cannot write on your own wall. Anyone
+        else can leave a note, anonymously, once a day. You reply there as @you.
       </p>
+      <a className="hint" href={FOG_SITE} target="_blank" rel="noreferrer">
+        register a .fog name on Fog, free on testnet →
+      </a>
       {!walletConnected ? (
         <button className="btn" onClick={onConnect}>
           connect Nulo
@@ -119,11 +125,42 @@ export function Home({
           style={{ gap: 10 }}
           onSubmit={async (e) => {
             e.preventDefault();
-            const clean = handleDraft.trim().replace(/^@/, "").toLowerCase();
-            if (!clean) return;
-            setCreating(true);
             setCreateError(null);
-            const err = await onCreate(clean);
+            setFogHint(null);
+            const parsed = normalizeFogLabel(handleDraft);
+            if ("error" in parsed) {
+              setCreateError(parsed.error);
+              return;
+            }
+            const label = parsed.label;
+            if (label.length > 15) {
+              setCreateError("this build of OnWallz supports names up to 15 characters; longer .fog names need the next contract");
+              return;
+            }
+            setCreating(true);
+            const gate = await checkFogName(label, address);
+            if (gate.kind === "invalid") {
+              setCreating(false);
+              setCreateError(gate.message);
+              return;
+            }
+            if (gate.kind === "other") {
+              setCreating(false);
+              setCreateError(`@${label}.fog already belongs to another account`);
+              return;
+            }
+            if (gate.kind === "owned") {
+              setFogHint(`@${label}.fog is yours`);
+            } else if (gate.kind === "unregistered") {
+              setFogHint(
+                label.length < FOG_MIN_LABEL
+                  ? `@${label}.fog is not registered, and Fog needs at least ${FOG_MIN_LABEL} characters; this wall will be a plain handle until you register it`
+                  : `@${label}.fog is not registered yet; register it on Fog to keep the name tied to you`,
+              );
+            } else {
+              setFogHint(`could not check Fog right now: ${gate.message}`);
+            }
+            const err = await onCreate(label);
             setCreating(false);
             if (err) setCreateError(err);
           }}
@@ -131,15 +168,16 @@ export function Home({
           <input
             value={handleDraft}
             onChange={(e) => setHandleDraft(e.target.value)}
-            placeholder="your handle, without @"
-            maxLength={15}
+            placeholder="yourname.fog"
+            maxLength={35}
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
           />
           <button className="btn primary" disabled={creating || !handleDraft.trim()}>
-            {creating ? "creating…" : `create @${handleDraft.trim().replace(/^@/, "") || "you"}`}
+            {creating ? "checking Fog and creating…" : `create @${handleDraft.trim().replace(/^@/, "").replace(/\.fog$/i, "") || "you"}`}
           </button>
+          {fogHint && <p className="hint" style={{ margin: 0 }}>{fogHint}</p>}
           {createError && <p className="hint" style={{ color: "var(--danger, #b00020)" }}>{createError}</p>}
           <button
             type="button"

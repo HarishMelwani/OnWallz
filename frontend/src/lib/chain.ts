@@ -365,6 +365,21 @@ function explainRevert(err: unknown, wallName: string): Error {
   if (/post is on another wall/i.test(raw)) {
     return new Error("that note is not on this wall");
   }
+  if (/not registered/i.test(raw)) {
+    return new Error(`@${wallName}.fog is not registered on Fog yet`);
+  }
+  if (/belongs to another account/i.test(raw)) {
+    return new Error(`@${wallName}.fog belongs to another account`);
+  }
+  if (/has expired/i.test(raw)) {
+    return new Error(`@${wallName}.fog has expired`);
+  }
+  if (/only the wall owner can link/i.test(raw)) {
+    return new Error("only the wall's owner can link a Fog name");
+  }
+  if (/label too short|label too long/i.test(raw)) {
+    return new Error("a .fog name is 3 to 31 characters");
+  }
   return err instanceof Error ? err : new Error(raw);
 }
 
@@ -385,6 +400,36 @@ export async function writeOnWall(
     await call.simulate({ from: sender });
   } catch (err) {
     throw explainRevert(err, wall.trim().replace(/^@/, "").toLowerCase());
+  }
+  return call.send({ from: sender, ...SEND_OPTS, ...(await feeOptions()) } as never);
+}
+
+/** Link a .fog name to a wall you own. The contract asks Fog who holds it. */
+export async function linkFog(wall: string, label: string, from: string) {
+  const clean = label.trim().replace(/^@/, "").replace(/\.fog$/i, "").toLowerCase();
+  const packedLabel = packText(clean);
+  const c = await contract();
+  const sender = AztecAddress.fromStringUnsafe(from);
+  const wallField = await wallKey(wall, from);
+  const call = c.methods.link_fog(wallField, packedLabel.fields[0], packedLabel.length);
+  try {
+    await call.simulate({ from: sender });
+  } catch (err) {
+    throw explainRevert(err, clean);
+  }
+  return call.send({ from: sender, ...SEND_OPTS, ...(await feeOptions()) } as never);
+}
+
+/** Remove the .fog link from a wall you own. The badge goes, the notes stay. */
+export async function unlinkFog(wall: string, from: string) {
+  const c = await contract();
+  const sender = AztecAddress.fromStringUnsafe(from);
+  const wallField = await wallKey(wall, from);
+  const call = c.methods.unlink_fog(wallField);
+  try {
+    await call.simulate({ from: sender });
+  } catch (err) {
+    throw explainRevert(err, wall);
   }
   return call.send({ from: sender, ...SEND_OPTS, ...(await feeOptions()) } as never);
 }

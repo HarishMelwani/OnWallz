@@ -307,6 +307,34 @@ export default function App() {
     return null;
   }
 
+  async function linkFogName(handle: string, label: string): Promise<string | null> {
+    if (wallet.status !== "connected" || !wallet.address) {
+      return "connect your wallet to link a Fog name";
+    }
+    try {
+      const chain = await import("./lib/chain");
+      await chain.linkFog(handle, label, wallet.address);
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+    setToast("fog name linked");
+    return null;
+  }
+
+  async function unlinkFogName(handle: string): Promise<string | null> {
+    if (wallet.status !== "connected" || !wallet.address) {
+      return "connect your wallet first";
+    }
+    try {
+      const chain = await import("./lib/chain");
+      await chain.unlinkFog(handle, wallet.address);
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+    setToast("fog name unlinked");
+    return null;
+  }
+
   return (
     <div className="shell">
       <Topbar
@@ -405,6 +433,8 @@ export default function App() {
             walletConnected={wallet.status === "connected"}
             onConnect={connect}
             wallClaimed={wallClaimed}
+            onLinkFog={linkFogName}
+            onUnlinkFog={unlinkFogName}
           />
         )}
       </main>

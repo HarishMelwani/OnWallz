@@ -216,7 +216,7 @@ export function Wall({
                 className="chip mono"
                 title={`proved control of ${fogLink.label}.fog, verified by the Fog registry`}
               >
-                fog · {fogLink.label}
+                {fogLink.label}.fog
               </span>
             )}
           </div>
@@ -228,7 +228,7 @@ export function Wall({
           <div className="notice">
             <span className="grow">
               {fogLink
-                ? `this wall shows ${fogLink.label}.fog.`
+                ? `this wall shows ${fogLink.label}.fog`
                 : "link a .fog name to show a badge. the wall keeps its own name."}
             </span>
             <input

@@ -196,7 +196,7 @@ export function Wall({
   }
 
   return (
-    <div className="card" style={{ overflow: "hidden" }}>
+    <div className={`card${fogLink ? " fog-verified-card" : ""}`} style={{ overflow: "hidden" }}>
       <div className="wall-head">
         <Sigil seed={`page:${handle}`} size={52} />
         <div className="who grow">
@@ -209,10 +209,14 @@ export function Wall({
             {isOwner && <span className="chip accent">yours</span>}
             {fogLink && (
               <span
-                className="chip mono"
-                title={`proved control of ${fogLink.label}.fog, verified by the Fog registry`}
+                className="fog-verified"
+                title={`verified by the Fog registry: this wall's owner holds ${fogLink.label}.fog`}
               >
-                {fogLink.label}.fog
+                <span className="fog-verified-check" aria-hidden="true">
+                  ✓
+                </span>
+                FogVerified
+                <span className="fog-verified-name">{fogLink.label}.fog</span>
               </span>
             )}
           </div>

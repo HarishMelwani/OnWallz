@@ -898,3 +898,26 @@ body { overflow-x: clip; }
   .toast { bottom: calc(18px + env(safe-area-inset-bottom)); max-width: calc(100vw - 28px); text-align: center; }
   .foot { padding-bottom: calc(26px + env(safe-area-inset-bottom)); }
 }
+
+
+/* The wall header chips (handle, notes, yours, FogVerified) must wrap on phones
+   instead of pushing the verified pill past the card edge. */
+.wall-head .row {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.fog-verified { max-width: 100%; min-width: 0; }
+.fog-verified-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 560px) {
+  .fog-verified {
+    font-size: 11px;
+    padding: 2px 8px 2px 5px;
+    gap: 5px;
+  }
+  .fog-verified-name { font-size: 10px; max-width: 44vw; }
+  .wall-head .row { gap: 6px 8px; }
+}

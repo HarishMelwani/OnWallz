@@ -522,7 +522,8 @@ html[data-theme="dark"] .item-link:hover {
     gap: 8px;
   }
 
-  .post, .item { padding-left: 0; padding-right: 0; }
+  /* only the feed rows go edge to edge; wall notes keep their card padding */
+  .feed .item { padding-left: 0; padding-right: 0; }
 }
 
 @media (max-width: 420px) {
@@ -835,4 +836,65 @@ html[data-theme="dark"] .item-link:hover {
   border-color: color-mix(in srgb, var(--good, #178a4c) 38%, var(--line));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--good, #178a4c) 12%, transparent),
     0 10px 30px -24px color-mix(in srgb, var(--good, #178a4c) 60%, transparent);
+}
+
+
+/* ---------- polish pass: hierarchy, feed, mobile ---------- */
+
+.seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+.seg .btn { border: 0; background: transparent; color: var(--ink-2); }
+.seg .btn.primary { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(20, 17, 14, 0.08); }
+.seg .spacer { display: none; }
+
+h1, h2, h3 { text-wrap: balance; }
+.lede, .post .text, .feed .text { text-wrap: pretty; }
+
+.post .meta { flex-wrap: wrap; row-gap: 4px; margin-bottom: 8px; }
+.post .when { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.post .text { font-size: 18px; line-height: 1.62; }
+
+.feed .item {
+  border-bottom: 1px solid var(--line);
+  border-radius: 10px;
+  transition: background 140ms ease;
+}
+.feed .item:hover { background: color-mix(in srgb, var(--surface-2) 55%, transparent); }
+.feed .item:last-child { border-bottom: 0; }
+
+.notice { flex-wrap: wrap; }
+.notice .input { flex: 1 1 150px; min-width: 0; }
+
+body { overflow-x: clip; }
+
+@media (max-width: 720px) {
+  .btn.sm { height: 34px; padding: 0 12px; }
+  .seg .btn.sm { height: 30px; }
+  .post { padding: 18px 16px; }
+  .post .text { font-size: 17.5px; line-height: 1.6; }
+  .wall-head { padding: 20px 16px; }
+  .wall-head h2 { font-size: clamp(21px, 6vw, 24px); }
+  .feed .item { padding: 14px 4px; }
+}
+
+@media (max-width: 560px) {
+  .topbar { padding: 10px 12px; gap: 8px; }
+  .topbar .wordmark-text { display: none; }
+  .topbar .at { font-size: 11px; padding: 1px 6px; }
+  .topbar .btn.sm { min-height: 32px; }
+  .main, .main.wide { padding: 20px 14px 84px; }
+  .post { padding: 16px 14px; grid-template-columns: 30px 1fr; gap: 10px; }
+  .post .text { font-size: 17px; }
+  .composer { padding: 14px; }
+  .finder { padding: 16px; }
+  .empty { padding: 40px 16px; }
+  .toast { bottom: calc(18px + env(safe-area-inset-bottom)); max-width: calc(100vw - 28px); text-align: center; }
+  .foot { padding-bottom: calc(26px + env(safe-area-inset-bottom)); }
 }

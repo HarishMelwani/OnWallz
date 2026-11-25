@@ -82,8 +82,27 @@ export default function App() {
   // Latest snapshot without making it an effect dependency (committing would loop).
   const [refreshKey, setRefreshKey] = useState(0);
   const [wallClaimed, setWallClaimed] = useState<boolean | null>(null);
+  // One honest loading surface for wallet handshakes and first chain reads. It shows
+  // only while the app is genuinely waiting on the wallet or the chain.
+  const [busy, setBusy] = useState<string | null>(null);
+  const [readingWall, setReadingWall] = useState(false);
   const sessionRef = useRef(session);
   sessionRef.current = session;
+
+  useEffect(() => {
+    const label =
+      wallet.status === "discovering"
+        ? "looking for your wallet…"
+        : wallet.status === "connecting"
+          ? "opening your wallet…"
+          : wallet.status === "awaiting-approval"
+            ? "approve the connection in your wallet…"
+            : wallet.status === "verifying"
+              ? "checking the connection…"
+              : null;
+    if (label) setBusy(label);
+    else if (wallet.status === "idle" || wallet.status === "error") setBusy(null);
+  }, [wallet.status]);
 
   // The contract is the source of truth for a wall. On every wall view (and
   // after a write) we re-read it and replace the cached posts for that wall.
@@ -95,6 +114,8 @@ export default function App() {
     // owns nothing, which is exactly what a visitor is.
     const from = wallet.address ?? "";
     let cancelled = false;
+    const firstLook = !sessionRef.current.pages[view.handle];
+    if (firstLook) setReadingWall(true);
     (async () => {
       try {
         const chainLib = await import("./lib/chain");
@@ -114,6 +135,8 @@ export default function App() {
       } catch (err) {
         // Leave the cached view in place, but never hide why it stayed stale.
         console.warn("[onwallz] could not read the wall from the contract:", err);
+      } finally {
+        if (!cancelled) setReadingWall(false);
       }
     })();
     return () => {
@@ -158,6 +181,7 @@ export default function App() {
     // Ownership lives in the wallet's private note. Ask the contract rather than the
     // cache, so a cleared browser or a new device still finds the wall.
     if (hasContract()) {
+      setBusy("finding your wall on the chain…");
       try {
         const chain = await import("./lib/chain");
         const owned = await chain.myWall(address);
@@ -168,6 +192,8 @@ export default function App() {
         }
       } catch (err) {
         console.warn("[onwallz] could not read your wall from the contract:", err);
+      } finally {
+        setBusy(null);
       }
     }
 
@@ -181,6 +207,7 @@ export default function App() {
   /** Ask the contract which wall this wallet owns, and adopt it locally. */
   async function restoreWall(): Promise<string | null> {
     if (wallet.status !== "connected" || !wallet.address) return "connect your wallet first";
+    setBusy("reading your wall from the chain…");
     try {
       const chain = await import("./lib/chain");
       const owned = await chain.myWall(wallet.address);
@@ -190,6 +217,8 @@ export default function App() {
       return null;
     } catch (err) {
       return `could not read your wall: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -201,6 +230,7 @@ export default function App() {
     // The modal stays open after a create so the backup can be shown; it closes
     // itself once the user confirms they saved it.
     setToast("in-app wallet ready");
+    setBusy("finding your wall on the chain…");
     try {
       const chain = await import("./lib/chain");
       const owned = await chain.myWall(address);
@@ -210,6 +240,8 @@ export default function App() {
       }
     } catch {
       // a wallet with no wall is a normal state
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -219,6 +251,7 @@ export default function App() {
     localStorage.removeItem("onwallz.last");
     localStorage.removeItem("onwallz.connected");
     setLastAddress(null);
+    setBusy(null);
     setToast("disconnected");
   }
 
@@ -389,6 +422,15 @@ export default function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {(busy || readingWall) && (
+        <div className="loadbar" role="status" aria-live="polite">
+          <span className="loadbar-fill" aria-hidden="true" />
+          <span className="loadbar-text">
+            {busy ?? `reading @${view.name === "wall" ? view.handle : ""} from the chain…`}
+          </span>
         </div>
       )}
 

@@ -110,9 +110,8 @@ export function Home({
   // written to an older contract, which then appeared here and nowhere else.
   const [recent, setRecent] = useState<Post[]>([]);
   useEffect(() => {
-    if (!address) return;
     let cancelled = false;
-    readActivity(12, address)
+    readActivity(12, address ?? "")
       .then((items) => {
         if (cancelled) return;
         setRecent(
@@ -124,7 +123,8 @@ export function Home({
             // The chain stamped this note; never invent a time for it here.
             ts: it.ts ?? 0,
             mode: it.mode === 1 ? 1 : 0,
-            replied: false,
+            replied: it.replied,
+            replyText: it.replyText ?? undefined,
           })),
         );
       })
@@ -135,6 +135,15 @@ export function Home({
       cancelled = true;
     };
   }, [address]);
+
+  const activeWalls = [...new Map(
+    recent
+      .filter((p) => p.wall.length > 0)
+      .map((p) => [p.wall, p] as const),
+  ).values()]
+    .sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0))
+    .slice(0, 5);
+  const newestWalls = [...walls].sort((a, b) => b.block - a.block).slice(0, 5);
 
   const myWallPosts = mine ? postsFor(snap, mine.handle) : [];
   const waiting = myWallPosts.filter((p) => !p.replied);
@@ -304,6 +313,48 @@ export function Home({
             {writePanel}
           </div>
         </section>
+
+        {(activeWalls.length > 0 || newestWalls.length > 0) && (
+          <section className="card pad stack" style={{ gap: 14 }}>
+            <div className="row" style={{ alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+              <p className="eyebrow grow" style={{ margin: 0 }}>live now</p>
+              <span className="hint">read from the chain</span>
+            </div>
+            <div className="finder-grid" style={{ gap: 20 }}>
+              <div className="stack" style={{ gap: 8 }}>
+                <span className="hint">recently active</span>
+                {activeWalls.length === 0 && <span className="hint">nothing yet</span>}
+                {activeWalls.map((p) => (
+                  <button
+                    key={`a-${p.wall}`}
+                    className="wall-link"
+                    style={{ padding: "10px 12px" }}
+                    onClick={() => onLookup(p.wall)}
+                  >
+                    <Handle handle={p.wall} />
+                    <span className="muted" style={{ fontSize: 12 }}>
+                      {p.ts ? timeAgo(p.ts) : ""}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className="stack" style={{ gap: 8 }}>
+                <span className="hint">new walls</span>
+                {newestWalls.length === 0 && <span className="hint">nothing yet</span>}
+                {newestWalls.map((w) => (
+                  <button
+                    key={`n-${w.wall}`}
+                    className="wall-link"
+                    style={{ padding: "10px 12px" }}
+                    onClick={() => onLookup(w.name)}
+                  >
+                    <Handle handle={w.name} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
 
         <Activity posts={recent} snap={snap} onLookup={onLookup} />
       </div>

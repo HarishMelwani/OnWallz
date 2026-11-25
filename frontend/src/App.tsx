@@ -9,7 +9,8 @@ import { Wall } from "./components/Wall";
 import { Probe } from "./components/Probe";
 import { Deploy } from "./components/Deploy";
 import { InAppWallet } from "./components/InAppWallet";
-import { useVerifiedHandle } from "./lib/verifiedWalls";
+import { useVerifiedHandle, wallKeyOf } from "./lib/verifiedWalls";
+import { readSeen, unreadCount } from "./lib/activitySeen";
 import { Feed } from "./components/Feed";
 
 type Route =
@@ -78,6 +79,32 @@ export default function App() {
   const knownAddress = wallet.status === "connected" ? wallet.address : null;
   const session = db.sessionFor(snap, knownAddress);
   const meVerified = useVerifiedHandle(session.me?.handle ?? null);
+  const [myUnread, setMyUnread] = useState(0);
+  useEffect(() => {
+    const handle = session.me?.handle;
+    const address = wallet.address;
+    if (!handle || !address) {
+      setMyUnread(0);
+      return;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const [chain, direct] = await Promise.all([import("./lib/chain"), import("./lib/direct")]);
+        const rows = await chain.readWall(handle, address);
+        const id = wallKeyOf((await direct.wallIdOf(handle)).toString());
+        if (!cancelled) setMyUnread(unreadCount(rows, readSeen(id)).total);
+      } catch {
+        // a quiet poll failure should never surface
+      }
+    };
+    void tick();
+    const timer = setInterval(tick, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [session.me?.handle, wallet.address]);
 
   const view = route;
 
@@ -380,6 +407,10 @@ export default function App() {
         onDisconnect={disconnect}
         onOpenInApp={() => setInAppOpen(true)}
         meVerified={meVerified}
+        unread={myUnread}
+        onOpenMine={() => {
+          if (session.me?.handle) go(`#/w/${encodeURIComponent(session.me.handle)}`);
+        }}
       />
 
       {wallet.status === "verifying" && wallet.emojis && (
@@ -461,6 +492,7 @@ export default function App() {
           <Feed
             address={wallet.address}
             contractReady={hasContract()}
+            myHandle={session.me?.handle ?? null}
             goWall={(wall) => go(`#/w/${encodeURIComponent(wall)}`)}
           />
         )}
@@ -485,7 +517,9 @@ export default function App() {
         )}
       </main>
 
-      <footer className="foot">OnWallz · anonymous authorship on aztec · nulo wallet</footer>
+      <footer className="foot">
+        OnWallz · anonymous authorship on aztec · <span className="mono">build {__BUILD_ID__}</span>
+      </footer>
 
       {inAppOpen && (
         <InAppWallet

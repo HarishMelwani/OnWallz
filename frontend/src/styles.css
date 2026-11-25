@@ -969,3 +969,33 @@ body { overflow-x: clip; }
 .at-title.verified { background: transparent; }
 
 .verified-name { color: var(--good, #178a4c); }
+
+
+/* owner activity + header chip */
+.post.new {
+  box-shadow: inset 3px 0 0 var(--accent);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+.me-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.unread {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 700;
+}

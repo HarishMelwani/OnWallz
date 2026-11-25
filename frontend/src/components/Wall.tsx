@@ -6,7 +6,8 @@ import { Sigil } from "./Sigil";
 import { Composer } from "./Composer";
 import { loadFogLinks, verifiedFogLink, type FogLink } from "../lib/fogLink";
 import { primaryFogName } from "../lib/fog";
-import { useVerifiedHandle } from "../lib/verifiedWalls";
+import { useVerifiedHandle, wallKeyOf } from "../lib/verifiedWalls";
+import { hasSeen, readSeen, unreadCount, writeSeen } from "../lib/activitySeen";
 
 type Props = {
   snap: Snapshot;
@@ -45,6 +46,8 @@ export function Wall({
   const [fogBusy, setFogBusy] = useState(false);
   const [autoFog, setAutoFog] = useState<string | null>(null);
   const [fogError, setFogError] = useState<string | null>(null);
+  const [newIndexes, setNewIndexes] = useState<Set<number>>(new Set());
+  const [newReplies, setNewReplies] = useState(0);
   // The newest note gets a brief highlight, so a landed write is unmistakable.
   const [landed, setLanded] = useState<number | null>(null);
   const prevCount = useRef(posts.length);
@@ -76,6 +79,35 @@ export function Wall({
   // ownership is computed here and the effects live above the early return.
   const ownerNow = !!(page && snap.me && normAddress(page.owner) === snap.me.id);
   const handleVerified = useVerifiedHandle(handle);
+
+  // Owner-side activity: count notes and replies since the last visit, highlight the
+  // notes, then advance the marker after a short read window.
+  useEffect(() => {
+    if (!ownerNow || !page || posts.length === 0) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    (async () => {
+      const { wallIdOf } = await import("../lib/direct");
+      const id = wallKeyOf((await wallIdOf(handle)).toString());
+      const seen = readSeen(id);
+      const replied = posts.filter((p) => p.replied).length;
+      if (!cancelled && hasSeen(id)) {
+        setNewIndexes(new Set(posts.filter((p) => p.index >= seen.notes).map((p) => p.index)));
+        setNewReplies(Math.max(0, replied - seen.replies));
+      }
+      if (!cancelled) {
+        timer = setTimeout(() => {
+          writeSeen(id, { notes: posts.length, replies: replied });
+          setNewIndexes(new Set());
+          setNewReplies(0);
+        }, 4000);
+      }
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [handle, page, posts.length, ownerNow]);
 
   useEffect(() => {
     if (!ownerNow || !address || fogLink) return;
@@ -213,6 +245,9 @@ export function Wall({
               {posts.length} {posts.length === 1 ? "note" : "notes"}
             </span>
             {isOwner && <span className="chip accent">yours</span>}
+            {isOwner && newIndexes.size + newReplies > 0 && (
+              <span className="chip accent">{newIndexes.size + newReplies} new</span>
+            )}
             {fogLink && (
               <span
                 className="fog-verified"
@@ -324,7 +359,10 @@ export function Wall({
           </div>
         ) : (
           posts.map((p) => (
-            <article className={`post${p.index === landed ? " landed" : ""}`} key={p.id}>
+            <article
+              className={`post${p.index === landed ? " landed" : ""}${newIndexes.has(p.index) ? " new" : ""}`}
+              key={p.id}
+            >
               <Sigil seed={p.id} size={40} />
               <div className="body">
                 <div className="meta">

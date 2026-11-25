@@ -10,13 +10,25 @@ type Props = {
   onDisconnect: () => void;
   onOpenInApp: () => void;
   meVerified: boolean;
+  unread: number;
+  onOpenMine: () => void;
 };
 
 function short(addr: string) {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
-export function Topbar({ me, wallet, onHome, onConnect, onDisconnect, onOpenInApp, meVerified }: Props) {
+export function Topbar({
+  me,
+  wallet,
+  onHome,
+  onConnect,
+  onDisconnect,
+  onOpenInApp,
+  meVerified,
+  unread,
+  onOpenMine,
+}: Props) {
   const [dark, setDark] = useState(() => {
     // A link can select the theme, which also makes screenshots and shared links
     // land in the state they describe.
@@ -72,7 +84,12 @@ export function Topbar({ me, wallet, onHome, onConnect, onDisconnect, onOpenInAp
 
       <span className="spacer" />
 
-      {me && <span className={`at${meVerified ? " verified" : ""}`}>@{me}</span>}
+      {me && (
+        <button className="me-chip" onClick={onOpenMine} title="open your wall">
+          <span className={`at${meVerified ? " verified" : ""}`}>@{me}</span>
+          {unread > 0 && <span className="unread">{unread}</span>}
+        </button>
+      )}
 
       {connected ? (
         <span className="row" style={{ gap: 6 }}>

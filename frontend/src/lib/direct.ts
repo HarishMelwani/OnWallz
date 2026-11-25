@@ -284,6 +284,8 @@ export type DirectActivity = {
   text: string;
   mode: number;
   ts: number | null;
+  replied: boolean;
+  replyText: string | null;
 };
 
 export async function readActivityDirect(limit: number): Promise<DirectActivity[]> {
@@ -301,14 +303,17 @@ export async function readActivityDirect(limit: number): Promise<DirectActivity[
       ]);
       const id = await poseidon2Hash([wallRaw, new Fr(Number(indexRaw.toString()))]);
       const itemIndex = Number(indexRaw.toString());
-      const [length, timeRaw, displayRaw, nonce, texts] = await Promise.all([
+      const [length, timeRaw, displayRaw, nonce, texts, repliedRaw, replyRaw] = await Promise.all([
         readMap("post_len", id),
         readMap("post_time", id),
         readMap("display", wallRaw),
         readMap("post_nonce", id),
         loadWallTexts(wallRaw),
+        readMap("replied", id),
+        readMap("reply_text", id),
       ]);
       const text = texts.get(itemIndex) ?? "";
+      const didReply = BigInt(repliedRaw.toString()) !== 0n;
       return {
         seq,
         wall: wallRaw.toString(),
@@ -317,6 +322,8 @@ export async function readActivityDirect(limit: number): Promise<DirectActivity[
         text,
         mode: 0,
         ts: Number(timeRaw.toString()) > 0 ? Number(timeRaw.toString()) * 1000 : timeOfNonce(nonce),
+        replied: didReply,
+        replyText: didReply ? textOf([replyRaw]) : null,
       } satisfies DirectActivity;
     }),
   );

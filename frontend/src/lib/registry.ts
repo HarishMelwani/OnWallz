@@ -17,7 +17,7 @@ const CREATED_TAG = "0x3013bb0e528a103b693c8562b9c93fb1ff23c46aa27ecd8d7433fc18a
 const PAGE = 20;
 const TTL = 30_000;
 
-export type RegisteredWall = { name: string; wall: string };
+export type RegisteredWall = { name: string; wall: string; block: number };
 
 let cache: RegisteredWall[] | null = null;
 let loadedAt = 0;
@@ -54,7 +54,7 @@ export async function loadRegisteredWalls(force = false): Promise<RegisteredWall
   if (inFlight) return inFlight;
 
   inFlight = (async () => {
-    const walls: bigint[] = [];
+    const walls: { wall: bigint; block: number }[] = [];
     try {
       let afterLog: Record<string, unknown> | null = null;
       for (let page = 0; page < 40; page++) {
@@ -79,7 +79,7 @@ export async function loadRegisteredWalls(force = false): Promise<RegisteredWall
         for (const log of logs) {
           const data = (log.logData ?? []).map((hex) => BigInt(hex));
           // [tag, wall]
-          if (data.length >= 2) walls.push(data[1]);
+          if (data.length >= 2) walls.push({ wall: data[1], block: log.blockNumber ?? 0 });
         }
         const last = logs[logs.length - 1];
         if (!last || last.blockNumber === undefined) break;
@@ -92,9 +92,10 @@ export async function loadRegisteredWalls(force = false): Promise<RegisteredWall
       }
 
       const named = await Promise.all(
-        walls.map(async (wall) => ({
+        walls.map(async ({ wall, block }) => ({
           name: await nameOfWall(wall),
           wall: wall.toString(),
+          block,
         })),
       );
       cache = named

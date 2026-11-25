@@ -956,3 +956,16 @@ body { overflow-x: clip; }
 @media (prefers-reduced-motion: reduce) {
   .loadbar-fill { animation: none; width: 100%; opacity: 0.5; }
 }
+
+
+/* A verified handle reads green everywhere, matching its Fog badge. */
+.at.verified,
+.at-title.verified,
+.handle.verified {
+  color: var(--good, #178a4c);
+  background: color-mix(in srgb, var(--good, #178a4c) 13%, transparent);
+}
+.handle.verified { background: transparent; font-weight: 600; }
+.at-title.verified { background: transparent; }
+
+.verified-name { color: var(--good, #178a4c); }

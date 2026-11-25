@@ -6,6 +6,7 @@ import { Sigil } from "./Sigil";
 import { Composer } from "./Composer";
 import { loadFogLinks, verifiedFogLink, type FogLink } from "../lib/fogLink";
 import { primaryFogName } from "../lib/fog";
+import { useVerifiedHandle } from "../lib/verifiedWalls";
 
 type Props = {
   snap: Snapshot;
@@ -74,6 +75,7 @@ export function Wall({
   // Hooks must run on every render, including the "wall does not exist" branch, so
   // ownership is computed here and the effects live above the early return.
   const ownerNow = !!(page && snap.me && normAddress(page.owner) === snap.me.id);
+  const handleVerified = useVerifiedHandle(handle);
 
   useEffect(() => {
     if (!ownerNow || !address || fogLink) return;
@@ -109,7 +111,7 @@ export function Wall({
           <Sigil seed={`page:${handle}`} size={52} />
           <div className="who grow">
             <h2>
-              <span className="at-title">@{handle}</span>
+              <span className={`at-title${handleVerified ? " verified" : ""}`}>@{handle}</span>
             </h2>
             <div className="hint">@{handle} has not created this wall yet.</div>
           </div>
@@ -204,9 +206,9 @@ export function Wall({
       <div className="wall-head">
         <Sigil seed={`page:${handle}`} size={52} />
         <div className="who grow">
-          <h2>{page.display}</h2>
+          <h2 className={handleVerified ? "verified-name" : undefined}>{page.display}</h2>
           <div className="row" style={{ marginTop: 4 }}>
-            <span className="handle">{handle}</span>
+            <span className={`handle${handleVerified ? " verified" : ""}`}>{handle}</span>
             <span className="chip">
               {posts.length} {posts.length === 1 ? "note" : "notes"}
             </span>
@@ -274,7 +276,7 @@ export function Wall({
       )}
 
       {!isOwner && walletConnected && check.status === "ready" && (
-        <Composer mode="ready" ownerName={page.display} busy={busy} onSend={(t, id) => send(t, id)} />
+        <Composer mode="ready" ownerName={page.display} ownerVerified={handleVerified} busy={busy} onSend={(t, id) => send(t, id)} />
       )}
 
 
@@ -351,7 +353,7 @@ export function Wall({
                 {p.replied && (
                   <div className="reply">
                     <span className="who">
-                      <span className="at">@{page.display}</span> replied
+                      <span className={`at${handleVerified ? " verified" : ""}`}>@{page.display}</span> replied
                     </span>
                     <span className="text">{p.replyText}</span>
                   </div>

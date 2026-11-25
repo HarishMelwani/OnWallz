@@ -3,6 +3,8 @@ import type { Post, Snapshot } from "../lib/types";
 import { readActivity } from "../lib/chain";
 import { loadRegisteredWalls, type RegisteredWall } from "../lib/registry";
 import { loadFogLinks } from "../lib/fogLink";
+import { useVerifiedWalls } from "../lib/verifiedWalls";
+import { Handle } from "./Handle";
 import { feed, postsFor } from "../lib/store";
 import { timeAgo } from "../lib/format";
 import { Sigil } from "./Sigil";
@@ -36,10 +38,14 @@ export function Home({
   const [query, setQuery] = useState("");
   const [walls, setWalls] = useState<RegisteredWall[]>([]);
   const [fogByWall, setFogByWall] = useState<Map<string, string>>(new Map());
+  const verifiedWalls = useVerifiedWalls();
   const [target, setTarget] = useState("");
   // Only show "your wall" when a wallet is actually connected. The snapshot can
   // still hold a previous session, and that must never look like a login.
   const mine = walletConnected && snap.me ? snap.pages[snap.me.handle] ?? null : null;
+  const verifiedNames = new Set(
+    walls.filter((w) => verifiedWalls.has(w.wall)).map((w) => w.name.toLowerCase()),
+  );
 
   // The registry of walls that actually exist, so the search can only offer those.
   useEffect(() => {
@@ -246,7 +252,7 @@ export function Home({
                   onLookup(w.name);
                 }}
               >
-                <span className="at">@{w.name}</span>
+                <span className={`at${verifiedWalls.has(w.wall) ? " verified" : ""}`}>@{w.name}</span>
                 {fogByWall.get(w.wall) && (
                   <span className="muted" style={{ fontSize: 12 }}>
                     {fogByWall.get(w.wall)}.fog
@@ -308,10 +314,10 @@ export function Home({
     <div className="stack" style={{ gap: 30 }}>
       <section className="hero compact">
         <p className="eyebrow">
-          signed in as <span className="at">@{mine.display}</span>
+          signed in as <span className={`at${verifiedNames.has(mine.handle.toLowerCase()) ? " verified" : ""}`}>@{mine.display}</span>
         </p>
         <h1 style={{ marginTop: 8, fontSize: 34 }}>
-          <span className="at-title">@{mine.handle}</span>
+          <span className={`at-title${verifiedNames.has(mine.handle.toLowerCase()) ? " verified" : ""}`}>@{mine.handle}</span>
           <span className="muted" style={{ fontWeight: 400 }}>
             {" "}
             · {myWallPosts.length} {myWallPosts.length === 1 ? "note" : "notes"}
@@ -426,7 +432,7 @@ function Activity({
                 <Sigil seed={p.id} size={22} />
                 <span className="muted" style={{ fontSize: 12 }}>
                   <span className="muted">someone →</span>{" "}
-                  <span className="at">@{p.wall}</span>
+                  <Handle handle={p.wall} />
                 </span>
                 {p.ts ? (
                   <span className="when muted" style={{ fontSize: 12 }}>

@@ -7,11 +7,12 @@ type Identity = { mode: 0 | 1; tag?: string };
 type Props = {
   mode: "ready" | "bonus";
   ownerName: string;
+  ownerVerified?: boolean;
   busy?: boolean;
   onSend: (text: string, identity: Identity) => void;
 };
 
-export function Composer({ mode, ownerName, busy, onSend }: Props) {
+export function Composer({ mode, ownerName, ownerVerified, busy, onSend }: Props) {
   const [text, setText] = useState("");
   
   
@@ -44,12 +45,12 @@ export function Composer({ mode, ownerName, busy, onSend }: Props) {
     <div className="composer">
       {mode === "bonus" && (
         <div className="notice good" style={{ marginBottom: 12 }}>
-          <span className="at">@{ownerName}</span> replied to you, so you can write again.
+          <span className={`at${ownerVerified ? " verified" : ""}`}>@{ownerName}</span> replied to you, so you can write again.
         </div>
       )}
       <div className="field">
         <label htmlFor="note">
-          write on <span className="at">@{ownerName}</span>&rsquo;s wall{" "}
+          write on <span className={`at${ownerVerified ? " verified" : ""}`}>@{ownerName}</span>&rsquo;s wall{" "}
           <span className="muted">. they won&rsquo;t know it was you</span>
         </label>
         <textarea

@@ -9,6 +9,7 @@ import { Wall } from "./components/Wall";
 import { Probe } from "./components/Probe";
 import { Deploy } from "./components/Deploy";
 import { InAppWallet } from "./components/InAppWallet";
+import { useVerifiedHandle } from "./lib/verifiedWalls";
 import { Feed } from "./components/Feed";
 
 type Route =
@@ -76,6 +77,7 @@ export default function App() {
   // logged-out visitor must not see a cached wall as if it were theirs.
   const knownAddress = wallet.status === "connected" ? wallet.address : null;
   const session = db.sessionFor(snap, knownAddress);
+  const meVerified = useVerifiedHandle(session.me?.handle ?? null);
 
   const view = route;
 
@@ -377,6 +379,7 @@ export default function App() {
         onConnect={connect}
         onDisconnect={disconnect}
         onOpenInApp={() => setInAppOpen(true)}
+        meVerified={meVerified}
       />
 
       {wallet.status === "verifying" && wallet.emojis && (

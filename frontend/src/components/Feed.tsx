@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { readActivity } from "../lib/chain";
 import { Sigil } from "./Sigil";
 import { timeAgo } from "../lib/format";
+import { useVerifiedWalls, wallKeyOf } from "../lib/verifiedWalls";
 
 type Item = Awaited<ReturnType<typeof readActivity>>[number];
 
@@ -15,6 +16,7 @@ export function Feed({ address, contractReady, goWall }: Props) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"latest" | "trending">("latest");
+  const verifiedWalls = useVerifiedWalls();
 
   useEffect(() => {
     if (!contractReady) return;
@@ -128,6 +130,7 @@ export function Feed({ address, contractReady, goWall }: Props) {
         {tab === "latest" &&
           items?.map((it) => {
             const target = it.handle || it.wall.slice(0, 10);
+            const targetVerified = verifiedWalls.has(wallKeyOf(it.wall));
             return (
               <button
                 key={it.seq}
@@ -137,7 +140,7 @@ export function Feed({ address, contractReady, goWall }: Props) {
               >
                 <div className="row">
                   <Sigil seed={`${it.seq}`} size={22} />
-                  <span className="at">@{target}</span>
+                  <span className={`at${targetVerified ? " verified" : ""}`}>@{target}</span>
                   <span className="muted" style={{ fontSize: 12 }}>
                     anonymous note
                   </span>
@@ -155,7 +158,7 @@ export function Feed({ address, contractReady, goWall }: Props) {
                 {it.replied && (
                   <div className="reply">
                     <span className="who">
-                      <span className="at">@{target}</span> replied
+                      <span className={`at${targetVerified ? " verified" : ""}`}>@{target}</span> replied
                     </span>
                     <span className="text">{it.replyText}</span>
                   </div>
@@ -175,7 +178,7 @@ export function Feed({ address, contractReady, goWall }: Props) {
               <div className="row">
                 <Sigil seed={t.wall} size={22} />
                 <span className="muted" style={{ fontSize: 12 }}>
-                  <span className="at">@{t.handle}</span>
+                  <span className={`at${verifiedWalls.has(wallKeyOf(t.wall)) ? " verified" : ""}`}>@{t.handle}</span>
                 </span>
                 <span className="spacer grow" />
                 <span className="muted" style={{ fontSize: 12 }}>

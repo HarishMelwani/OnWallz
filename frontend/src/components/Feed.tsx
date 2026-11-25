@@ -10,13 +10,12 @@ type Props = {
   address: string | null;
   contractReady: boolean;
   goWall: (wall: string) => void;
-  myHandle: string | null;
 };
 
-export function Feed({ address, contractReady, goWall, myHandle }: Props) {
+export function Feed({ address, contractReady, goWall }: Props) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"latest" | "replies" | "trending">("latest");
+  const [tab, setTab] = useState<"latest" | "trending">("latest");
   const verifiedWalls = useVerifiedWalls();
 
   useEffect(() => {
@@ -91,12 +90,6 @@ export function Feed({ address, contractReady, goWall, myHandle }: Props) {
             latest
           </button>
           <button
-            className={`btn sm ${tab === "replies" ? "primary" : "ghost"}`}
-            onClick={() => setTab("replies")}
-          >
-            replies
-          </button>
-          <button
             className={`btn sm ${tab === "trending" ? "primary" : "ghost"}`}
             onClick={() => setTab("trending")}
           >
@@ -151,7 +144,6 @@ export function Feed({ address, contractReady, goWall, myHandle }: Props) {
                   <span className="muted" style={{ fontSize: 12 }}>
                     anonymous note
                   </span>
-                  {myHandle && it.handle === myHandle && <span className="chip accent">on your wall</span>}
                   {it.ts ? (
                     <span className="muted" style={{ fontSize: 12 }}>
                       · {timeAgo(it.ts)}
@@ -165,12 +157,6 @@ export function Feed({ address, contractReady, goWall, myHandle }: Props) {
                 <div className="text">{it.text}</div>
                 {it.replied && (
                   <div className="reply">
-                    <span className="who">@{target} replied</span>
-                    <span className="text">{it.replyText}</span>
-                  </div>
-                )}
-                {it.replied && (
-                  <div className="reply">
                     <span className="who">
                       <span className={`at${targetVerified ? " verified" : ""}`}>@{target}</span> replied
                     </span>
@@ -180,42 +166,6 @@ export function Feed({ address, contractReady, goWall, myHandle }: Props) {
               </button>
             );
           })}
-
-        {tab === "replies" &&
-          items?.filter((it) => it.replied).map((it) => {
-            const target = it.handle || it.wall.slice(0, 10);
-            return (
-              <button
-                key={`r-${it.seq}`}
-                className="item item-link"
-                onClick={() => goWall(target)}
-                title={`open @${target}`}
-              >
-                <div className="row">
-                  <Sigil seed={`r${it.seq}`} size={22} />
-                  <span className={`at${verifiedWalls.has(wallKeyOf(it.wall)) ? " verified" : ""}`}>@{target}</span>
-                  <span className="muted" style={{ fontSize: 12 }}>
-                    replied to a note
-                  </span>
-                  {myHandle && it.handle === myHandle && <span className="chip accent">on your wall</span>}
-                </div>
-                <div className="reply" style={{ marginTop: 8 }}>
-                  <span className="who">@{target}</span>
-                  <span className="text">{it.replyText}</span>
-                </div>
-                <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>
-                  note: {it.text}
-                </div>
-              </button>
-            );
-          })}
-
-        {tab === "replies" && items && items.filter((it) => it.replied).length === 0 && (
-          <div className="empty">
-            <span className="glyph">·</span>
-            no replies yet.
-          </div>
-        )}
 
         {tab === "trending" &&
           trending?.map((t) => (

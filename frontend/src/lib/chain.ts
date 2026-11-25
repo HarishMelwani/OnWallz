@@ -562,8 +562,8 @@ export async function readActivity(limit: number, _from?: string) {
     text: it.text,
     mode: it.mode,
     tag: null,
-    replied: it.replied,
-    replyText: it.replyText,
+    replied: false,
+    replyText: null,
     ts: it.ts,
   }));
 }

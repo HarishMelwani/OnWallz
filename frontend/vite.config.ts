@@ -53,10 +53,7 @@ export default defineConfig({
       protocolImports: true,
     }),
   ],
-  define: {
-    global: "globalThis",
-    __BUILD_ID__: JSON.stringify((process.env.VERCEL_GIT_COMMIT_SHA || "dev").slice(0, 7)),
-  },
+  define: { global: "globalThis" },
   // In-page proving wants cross-origin isolation. Without these the embedded wallet
   // still works, just single-threaded and slower. (One server block only: a duplicate
   // key would silently drop these.)

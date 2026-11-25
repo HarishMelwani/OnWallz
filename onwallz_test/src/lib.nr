@@ -70,9 +70,7 @@ unconstrained fn test_a_stranger_writes_anonymously() {
     env.call_private(bob, OnWallz::at(address).write([7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 1, 21, n, len));
 
     assert(env.view_public(OnWallz::at(address).notes(wall)) == 1);
-    let (text, length) = env.view_public(OnWallz::at(address).read_post(wall, 0));
-    assert(text[0] == 7);
-    assert(length == 1);
+    assert(env.view_public(OnWallz::at(address).post_len_at(wall, 0)) == 1);
     // the note carries no identity: no view anywhere maps it to an address
     assert(env.view_public(OnWallz::at(address).name_of(wall)) == n, "only the wall's name is public");
 }
@@ -129,9 +127,7 @@ unconstrained fn test_author_can_tombstone_and_text_is_kept() {
     env.call_private(bob, OnWallz::at(address).tombstone(wall, post_id, 61));
     assert(env.view_public(OnWallz::at(address).is_deleted(post_id)));
 
-    let (text, l) = env.view_public(OnWallz::at(address).read_post(wall, 0));
-    assert(text[0] == 3);
-    assert(l == 3);
+    assert(env.view_public(OnWallz::at(address).post_len_at(wall, 0)) == 3);
 }
 
 #[test(should_fail)]
@@ -173,7 +169,7 @@ unconstrained fn test_activity_log_orders_walls() {
 }
 
 #[test]
-unconstrained fn test_a_long_note_keeps_its_text_out_of_public_storage() {
+unconstrained fn test_a_long_note_records_its_length_and_writes_no_storage_text() {
     let (mut env, alice, bob, address) = setup();
     let (n, len) = name_of_harish();
     let wall = env.view_public(OnWallz::at(address).wall_id(n, len));
@@ -185,21 +181,28 @@ unconstrained fn test_a_long_note_keeps_its_text_out_of_public_storage() {
     env.call_private(bob, OnWallz::at(address).write(text, 200, 91, n, len));
 
     assert(env.view_public(OnWallz::at(address).notes(wall)) == 1);
-    let (stored, length) = env.view_public(OnWallz::at(address).read_post(wall, 0));
-    assert(length == 200, "length recorded");
-    assert(stored[0] == 0, "text is not in public storage");
+    assert(env.view_public(OnWallz::at(address).post_len_at(wall, 0)) == 200, "length recorded");
 }
 
 #[test]
-unconstrained fn test_a_short_note_still_keeps_its_text_in_storage() {
+unconstrained fn test_a_short_note_uses_the_same_path_as_a_long_one() {
     let (mut env, alice, bob, address) = setup();
     let (n, len) = name_of_harish();
     let wall = env.view_public(OnWallz::at(address).wall_id(n, len));
     env.call_private(alice, OnWallz::at(address).create(n, len));
     env.call_private(bob, OnWallz::at(address).write([7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 1, 92, n, len));
-    let (stored, length) = env.view_public(OnWallz::at(address).read_post(wall, 0));
-    assert(length == 1);
-    assert(stored[0] == 7, "short text stays readable from storage");
+    assert(env.view_public(OnWallz::at(address).post_len_at(wall, 0)) == 1);
+}
+
+#[test]
+unconstrained fn test_the_wall_tag_matches_the_client_derivation() {
+    let (mut env, alice, _bob, address) = setup();
+    let (n, len) = name_of_harish();
+    let wall = env.view_public(OnWallz::at(address).wall_id(n, len));
+    env.call_private(alice, OnWallz::at(address).create(n, len));
+    // Computed in TypeScript with computeLogTag(wall, 0x574c4e54).
+    let expected: Field = 0x1d902f34cc3a2814dee53b157c02c68cdc3d696c6c48ede087c61bdaa79eb21d;
+    assert(env.view_public(OnWallz::at(address).note_tag(wall)) == expected, "tag parity");
 }
 
 #[test]

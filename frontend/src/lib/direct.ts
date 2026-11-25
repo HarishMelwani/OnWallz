@@ -119,71 +119,62 @@ export function timeOfNonce(nonce: Fr): number | null {
 }
 
 /**
- * Long notes live in the PostedLong event, not in public storage. The event's log tag is
- * derived from its signature, so we try the plausible renderings once and keep the one
- * that answers.
+ * Every note is one public log tagged with its wall. The tag is derived on chain from the
+ * wall id and a fixed domain, so a client that knows the wall can ask the node for that
+ * tag alone. That is what keeps reading a wall proportional to its own notes instead of
+ * to every note on the contract.
  */
-// Verified against the deployed contract: this is the exact signature the macro derives.
-/**
- * Long notes live in the PostedLong event. Its log tag depends only on the event's
- * signature and a protocol domain separator, so it is a constant; querying with it is a
- * plain JSON-RPC call, which avoids hashing in the browser entirely.
- */
-const LONG_TAG = "0x1f8ad554bf91381ab2a301e80f5bda26f64b258bab728a573571bc8bf8033424";
+const DOM_SEP_WALL_NOTES = 0x574c4e54;
+const WALL_TEXT_CACHE_MS = 30_000;
+const wallText = new Map<string, { at: number; texts: Map<number, string> }>();
+const wallTextInFlight = new Map<string, Promise<Map<number, string>>>();
 
-let longCache: Map<string, string> | null = null;
-let longInFlight: Promise<Map<string, string>> | null = null;
-let longLoadedAt = 0;
-const LONG_CACHE_MS = 30_000;
-
-function longKey(wall: Fr, index: number): string {
-  return `${wall.toString()}:${index}`;
+async function noteTag(wall: Fr): Promise<string> {
+  const { computeLogTag } = await import("@aztec-labs/stdlib/hash");
+  return (await computeLogTag(wall, DOM_SEP_WALL_NOTES as never)).toString();
 }
 
-async function loadLongNotes(force = false): Promise<Map<string, string>> {
-  // The cache is short lived: a note written after the last fetch would otherwise look
-  // unreadable until a reload.
-  if (!force && longCache && Date.now() - longLoadedAt < LONG_CACHE_MS) return longCache;
-  if (longInFlight) return longInFlight;
+/** Text of every note on one wall, keyed by index. Paginated by that wall's tag. */
+export async function loadWallTexts(wall: Fr, force = false): Promise<Map<number, string>> {
+  const key = wall.toString();
+  const cached = wallText.get(key);
+  if (!force && cached && Date.now() - cached.at < WALL_TEXT_CACHE_MS) return cached.texts;
+  const existing = wallTextInFlight.get(key);
+  if (existing && !force) return existing;
 
-  longInFlight = (async () => {
-    const map = new Map<string, string>();
+  const run = (async () => {
+    const texts = new Map<number, string>();
     const contract = liveAddress();
+    const tag = await noteTag(wall);
     let afterLog: Record<string, unknown> | null = null;
     try {
-      // The node returns at most one page per tag, so we follow the cursor until the
-      // tag is exhausted. Without this, older notes silently fall off the list.
       for (let page = 0; page < 40; page++) {
-        const tagQuery = afterLog ? { tag: LONG_TAG, afterLog } : LONG_TAG;
-        const body = {
-          jsonrpc: "2.0",
-          id: 1,
-          method: "node_getPublicLogsByTags",
-          params: [{ contractAddress: contract, tags: [tagQuery] }],
-        };
+        const tagQuery = afterLog ? { tag, afterLog } : tag;
         const res = await fetch(NODE_URL, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "node_getPublicLogsByTags",
+            params: [{ contractAddress: contract, tags: [tagQuery] }],
+          }),
         });
         const json = (await res.json()) as {
           result?: { logData?: string[]; blockNumber?: number; txIndexWithinBlock?: number; logIndexWithinTx?: number }[][];
           error?: { message?: string };
         };
-        if (json.error) throw new Error(json.error.message ?? "log query failed");
+        if (json.error) throw new Error(json.error.message ?? "note log query failed");
         const logs = json.result?.[0] ?? [];
         if (logs.length === 0) break;
-
         for (const log of logs) {
           const data = (log.logData ?? []).map((hex) => BigInt(hex));
-          // [tag, wall, index, length, digest, ...32 text fields]
-          if (data.length < 37) continue;
-          const wall = new Fr(data[1]);
+          // [tag, wall, index, length, ...32 text fields]
+          if (data.length < 36) continue;
           const index = Number(data[2]);
           const length = Number(data[3]);
-          map.set(longKey(wall, index), textOf(data.slice(5, 37).map((v) => new Fr(v)), length));
+          texts.set(index, textOf(data.slice(4, 36).map((v) => new Fr(v)), length));
         }
-
         const last = logs[logs.length - 1];
         if (!last || last.blockNumber === undefined) break;
         afterLog = {
@@ -191,20 +182,19 @@ async function loadLongNotes(force = false): Promise<Map<string, string>> {
           txIndexWithinBlock: last.txIndexWithinBlock,
           logIndexWithinTx: last.logIndexWithinTx,
         };
-        // A page smaller than the node's cap is the last page.
         if (logs.length < 20) break;
       }
-      console.info(`[onwallz] long notes loaded: ${map.size}`);
+      console.info(`[onwallz] notes read for ${key.slice(0, 10)}…: ${texts.size}`);
     } catch (err) {
-      console.warn("[onwallz] could not load long notes:", err);
+      console.warn("[onwallz] could not read note logs:", err);
     }
-    longCache = map;
-    longLoadedAt = Date.now();
-    longInFlight = null;
-    return map;
+    wallText.set(key, { at: Date.now(), texts });
+    wallTextInFlight.delete(key);
+    return texts;
   })();
 
-  return longInFlight;
+  wallTextInFlight.set(key, run);
+  return run;
 }
 
 export type DirectPost = {
@@ -242,11 +232,11 @@ export async function readWallDirect(handle: string): Promise<DirectWall> {
   ]);
 
   const count = Number(countRaw.toString());
+  const texts = await loadWallTexts(wall);
   const posts = await Promise.all(
     Array.from({ length: count }, async (_, index) => {
       const id = await poseidon2Hash([wall, new Fr(index)]);
-      const [text0, length, timeRaw, replied, replyText, nonce] = await Promise.all([
-        readMap("post_text", id),
+      const [length, timeRaw, replied, replyText, nonce] = await Promise.all([
         readMap("post_len", id),
         readMap("post_time", id),
         readMap("replied", id),
@@ -259,20 +249,7 @@ export async function readWallDirect(handle: string): Promise<DirectWall> {
       // Short notes keep their text in three consecutive storage slots; long notes were
       // written to the PostedLong event and only their digest is in state.
       const lengthValue = Number(length.toString());
-      let text: string;
-      if (lengthValue > 93) {
-        const longs = await loadLongNotes();
-        text = longs.get(longKey(wall, index)) ?? "";
-        if (!text) {
-          // The note may have been written after the cache was built.
-          const fresh = await loadLongNotes(true);
-          text = fresh.get(longKey(wall, index)) ?? "";
-        }
-      } else {
-        const text1 = await readMapOffset("post_text", id, 1);
-        const text2 = await readMapOffset("post_text", id, 2);
-        text = textOf([text0, text1, text2], lengthValue);
-      }
+      const text = texts.get(index) ?? "";
       const didReply = BigInt(replied.toString()) !== 0n;
       return {
         index,
@@ -283,7 +260,8 @@ export async function readWallDirect(handle: string): Promise<DirectWall> {
         replied: didReply,
         replyText: didReply ? textOf([replyText]) : null,
         nonce: nonce.toString(),
-        long: lengthValue > 93,
+        // Only used to explain a note whose log could not be read.
+        long: lengthValue > 0 && text.length === 0,
         ts: seconds > 0 ? seconds * 1000 : timeOfNonce(nonce),
       } satisfies DirectPost;
     }),
@@ -296,13 +274,6 @@ export async function readWallDirect(handle: string): Promise<DirectWall> {
     name: BigInt(displayRaw.toString()) === 0n ? "" : textOf([displayRaw]),
     posts,
   };
-}
-
-/** Storage slot for element `offset` of a static array stored in a map. */
-async function readMapOffset(name: string, key: Fr, offset: number): Promise<Fr> {
-  const contract = AztecAddress.fromStringUnsafe(liveAddress());
-  const slot = await deriveStorageSlotInMap(SLOT[name] ?? 0n, key);
-  return node().getPublicStorageAt("latest", contract, new Fr(BigInt(slot.toString()) + BigInt(offset)));
 }
 
 export type DirectActivity = {
@@ -329,28 +300,15 @@ export async function readActivityDirect(limit: number): Promise<DirectActivity[
         readMap("activity_index", new Fr(seq)),
       ]);
       const id = await poseidon2Hash([wallRaw, new Fr(Number(indexRaw.toString()))]);
-      const [text0, length, timeRaw, displayRaw, nonce] = await Promise.all([
-        readMap("post_text", id),
+      const itemIndex = Number(indexRaw.toString());
+      const [length, timeRaw, displayRaw, nonce, texts] = await Promise.all([
         readMap("post_len", id),
         readMap("post_time", id),
         readMap("display", wallRaw),
         readMap("post_nonce", id),
+        loadWallTexts(wallRaw),
       ]);
-      const itemIndex = Number(indexRaw.toString());
-      const lengthValue = Number(length.toString());
-      let text: string;
-      if (lengthValue > 93) {
-        const longs = await loadLongNotes();
-        text = longs.get(longKey(wallRaw, itemIndex)) ?? "";
-        if (!text) {
-          const fresh = await loadLongNotes(true);
-          text = fresh.get(longKey(wallRaw, itemIndex)) ?? "";
-        }
-      } else {
-        const text1 = await readMapOffset("post_text", id, 1);
-        const text2 = await readMapOffset("post_text", id, 2);
-        text = textOf([text0, text1, text2], lengthValue);
-      }
+      const text = texts.get(itemIndex) ?? "";
       return {
         seq,
         wall: wallRaw.toString(),

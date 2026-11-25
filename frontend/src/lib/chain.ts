@@ -219,7 +219,7 @@ export function fromField(field: Fr): string {
 
 /**
  * Pack message text into 32 fields (992 bytes max). Notes that fit in three fields are
- * stored in public state; longer ones travel in the PostedLong event, so length costs
+ * stored in public state; the text travels in a log tagged with the wall, so one read
  * a log instead of storage slots.
  */
 export const MAX_TEXT_BYTES = 992;

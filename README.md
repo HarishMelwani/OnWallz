@@ -75,7 +75,11 @@ The public half is the only part the world sees, and it is given a wall, some te
 
 **Writing.** `write` runs privately. It refuses your own wall by reading your private notes, then pushes a nullifier scoped to `(wallet, wall, day)`, so the daily limit is enforced without becoming identity.
 
-**Long notes.** A note holds up to 992 bytes. Up to 93 bytes the text lives in public storage, which keeps reads to a few slot lookups. Longer notes put their text in a `PostedLong` event and keep only length and a digest in state, so a long note costs a log instead of thirty storage slots. The text is still permanent chain data, just in the log rather than in state.
+**Notes.** A note holds up to 992 bytes and always takes the same path: the text is a
+public log tagged with the wall id. There is no short/long split and no text in public
+storage, so a client reads one wall by asking the node for that wall's tag instead of
+scanning every note on the contract. The tag is derived from the wall and a fixed domain
+separator, and both sides pin the same value.
 
 **Time.** The public half stamps every note with block time. The interface never invents a timestamp.
 

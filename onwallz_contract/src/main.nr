@@ -25,7 +25,7 @@ pub contract OnWallz {
         note::{note_getter_options::NoteGetterOptions, note_viewer_options::NoteViewerOptions},
         protocol::{
             address::AztecAddress,
-            hash::{poseidon2_hash, poseidon2_hash_with_separator},
+            hash::{compute_log_tag, poseidon2_hash, poseidon2_hash_with_separator},
             traits::{Packable, ToField},
         },
         state_vars::{Map, Owned, PrivateSet, PublicImmutable, PublicMutable},
@@ -34,6 +34,9 @@ pub contract OnWallz {
     // Domain separators, so no two hashes in this contract can collide.
     global DOMAIN_DAILY: Field = 0x44415931;
     global DOMAIN_WALL: Field = 0x57414c4c;
+    // Every note log is tagged with its wall, so a client reads one wall's notes
+    // without scanning every note on the contract. The client uses the same domain.
+    global DOM_SEP_WALL_NOTES: u32 = 0x574c4e54;
 
     /// A note is up to 32 fields of 31 bytes each, so 992 bytes of text. Notes that fit
     /// in three fields (93 bytes) keep their text in public storage; longer ones put it
@@ -48,17 +51,6 @@ pub contract OnWallz {
         wall: Field,
         index: u32,
         length: u16,
-    }
-
-    /// A long note. Its text lives here, in the log, not in public state. Only the
-    /// digest and the length touch state, so a long post costs no storage slots for text.
-    #[event]
-    struct PostedLong {
-        wall: Field,
-        index: u32,
-        length: u16,
-        digest: Field,
-        text: [Field; 32],
     }
 
     /// A wall was created by its owner.
@@ -113,7 +105,6 @@ pub contract OnWallz {
         names: Owned<PrivateSet<NameNote, Context>, Context>,
         display: Map<Field, PublicImmutable<Field, Context>, Context>,
         post_count: Map<Field, PublicMutable<u32, Context>, Context>,
-        post_text: Map<Field, PublicMutable<[Field; 3], Context>, Context>,
         post_len: Map<Field, PublicMutable<u16, Context>, Context>,
         // post id -> wall it was written on
         post_wall: Map<Field, PublicImmutable<Field, Context>, Context>,
@@ -228,14 +219,14 @@ pub contract OnWallz {
         let id = poseidon2_hash([wall, count as Field]);
 
         self.storage.post_len.at(id).write(length);
-        if length as u32 <= STORED_BYTES {
-            // Short note: text stays in public storage, so reads are a few slot lookups.
-            self.storage.post_text.at(id).write([text[0], text[1], text[2]]);
-        } else {
-            // Long note: text goes to the log, state keeps only its digest.
-            let digest = poseidon2_hash([length as Field].concat(text));
-            self.emit(PostedLong { wall, index: count, length, digest, text });
-        }
+        // One representation for every note: the text is a public log tagged with this
+        // wall. No storage slots for text, and a reader finds one wall's notes without
+        // scanning the whole contract.
+        let tag = compute_log_tag(wall, DOM_SEP_WALL_NOTES);
+        self.context.emit_public_log_unsafe(
+            tag,
+            [wall, count as Field, length as Field].concat(text),
+        );
         self.storage.post_wall.at(id).initialize(wall);
         self.storage.post_nonce.at(id).initialize(nonce);
         self.storage.post_key.at(id).initialize(key);
@@ -340,16 +331,18 @@ pub contract OnWallz {
         poseidon2_hash([name, len as Field, DOMAIN_WALL])
     }
 
-    /// First chunk of a note and its byte length. The remaining chunks are read from
-    /// the derived keys by any client that knows how to compute them.
+    /// Byte length of a note. The text itself is in the wall's tagged log.
     #[external("public")]
     #[view]
-    fn read_post(wall: Field, index: u32) -> pub ([Field; 3], u16) {
-        let id = poseidon2_hash([wall, index as Field]);
-        (
-            self.storage.post_text.at(id).read(),
-            self.storage.post_len.at(id).read(),
-        )
+    fn post_len_at(wall: Field, index: u32) -> pub u16 {
+        self.storage.post_len.at(poseidon2_hash([wall, index as Field])).read()
+    }
+
+    /// The log tag a client must query to read this wall's notes.
+    #[external("public")]
+    #[view]
+    fn note_tag(wall: Field) -> pub Field {
+        compute_log_tag(wall, DOM_SEP_WALL_NOTES)
     }
 
     /// Deterministic note id for a wall and index, so clients do not have to hash.

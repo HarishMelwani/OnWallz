@@ -5,10 +5,9 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { loadContractFile } from "./lib/config";
 import "./styles.css";
 
-// Dark first: a gallery needs a dark room. Light stays one toggle away, and an
-// explicit choice is remembered over the default.
 const stored = localStorage.getItem("onwallz.theme");
-document.documentElement.dataset.theme = stored === "light" ? "light" : "dark";
+const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+document.documentElement.dataset.theme = stored ?? (prefersDark ? "dark" : "light");
 
 const root = createRoot(document.getElementById("root")!);
 

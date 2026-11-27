@@ -6,6 +6,8 @@ You create your own wall when you sign up. Anyone else can leave a note on it, o
 
 Live on Aztec testnet: https://onwallz.vercel.app
 
+Contract: `0x191f7845a78e052ea42890b9cecfc36380e3b223ae0c789ad0c7445e3317a236`
+
 > Your wall is controlled by the people who write on it, not by you.
 
 ![The home page in dark mode](docs/home-dark.png)
@@ -28,11 +30,17 @@ There is no signup, no email, no profile, no feed algorithm, no company holding 
 A wall name is yours to choose. `@alice123` is a perfectly good wall.
 
 Fog is optional and additive. From your own wall you can link a `.fog` name you hold, and
-the wall shows a badge for it. The private half of `link_fog` proves you own the wall and
-records your address as the claimant; the contract does not call Fog. Readers do: the
-client resolves the label on Fog and only shows the badge while Fog still names the
+the wall shows a **FogVerified** badge for it. The private half of `link_fog` proves you own
+the wall and records your address as the claimant; the contract does not call Fog. Readers
+do: the client resolves the label on Fog and only shows the badge while Fog still names the
 claimant as the owner. A link is an event, so it costs one log, and it stops showing the
 moment the name transfers or expires.
+
+The wall fetches the connected wallet's primary `.fog` name and offers it with a single
+link button, so there is no label to type. A verified wall turns its `@handle` green
+wherever it appears: on the wall, in the feed, in search results and in the top bar. The
+home search also matches a linked Fog name, so `alice.fog` finds the wall called
+`@alice123`.
 
 That split is deliberate. A call from OnWallz into the Fog contract made the transaction
 depend on the wallet simulating a third contract, which some wallets refuse. The claim is
@@ -41,7 +49,8 @@ badge.
 
 Two limits. The Fog testnet registry is young, so a link can answer "not registered" until
 the name exists. And the wallet that owns the wall must be the wallet that holds the Fog
-name; if the two differ, the link is refused and the error names both addresses.
+name; if the two differ, the link is refused and the error names both addresses. Creating a
+wall never requires Fog, so anyone can start without one.
 
 ## Why the privacy is real
 
@@ -79,27 +88,30 @@ The public half is the only part the world sees, and it is given a wall, some te
 public log tagged with the wall id. There is no short/long split and no text in public
 storage, so a client reads one wall by asking the node for that wall's tag instead of
 scanning every note on the contract. The tag is derived from the wall and a fixed domain
-separator, and both sides pin the same value.
+separator, and a test pins the Noir value to the TypeScript one. Logs are paged 20 at a
+time, per wall.
 
 **Time.** The public half stamps every note with block time. The interface never invents a timestamp.
 
 **Replies.** Only the owner can reply, proved from the private ownership note. The chain learns that the wall's owner replied, not which wallet that is.
 
-**Search.** The home page builds a list of walls from `Created` events and their names from the public `display` map. Typing a prefix filters that local list, so only walls that exist can be opened or written to.
+**Search.** The home page builds a list of walls from `Created` events and their names from the public `display` map. Typing a prefix filters that local list, so only walls that exist can be opened or written to. A wall that linked a Fog name can also be found by that name.
 
 ## Two ways to hold a wallet
 
 **Nulo extension.** The recommended path. It keeps keys, proves transactions and manages your identity.
 
-**An in-app wallet.** For phones and for anyone who will not install an extension. It creates keys in the page, stores them in this browser, and proves transactions on the device. Slower, since proving runs on your hardware, and the backup string it shows you is the only way to recover it. It can be exported, imported and forgotten from the same dialog.
+**An in-app wallet.** For phones and for anyone who will not install an extension. It creates keys in the page, stores them in this browser, and proves transactions on the device. Slower, since proving runs on your hardware, and the backup string it shows you is the only way to recover it. It can be exported, imported and forgotten from the same dialog. Importing the backup in another browser or profile restores the same wallet, and the ownership note is rediscovered from chain; that path is tested.
+
+A slim banner reports what the app is waiting on, the wallet handshake or the first chain read of a wall, and disappears when the work finishes.
 
 On testnet, fees are paid by the sponsored payer, so neither wallet needs fee juice. That is a demo convenience, not the fee model.
 
 ## Stack
 
-Aztec 6.0.0, Aztec.nr v6.0.0, Noir 1.0.0-rc.3. The client is Vite and React with no backend. Reads go straight from the browser to the node: public storage slots for the fast path, paginated event logs for long notes and the wall registry. Writes go through whichever wallet you chose, with a simulation before every send so a rejection comes back as a real reason instead of the wallet's catch all.
+Aztec 6.0.0, Aztec.nr v6.0.0, Noir 1.0.0-rc.3. The client is Vite and React with no backend. Reads go straight from the browser to the node: public storage slots for the fast path, per-wall tagged logs for note text, and paginated `Created` events for the wall registry. Fog verification uses the read-only `fog-sdk` in the browser. Writes go through whichever wallet you chose, with a simulation before every send so a rejection comes back as a real reason instead of the wallet's catch all.
 
-Contract: `onwallz_contract/src/main.nr`. Tests: `onwallz_test/src/lib.nr`, thirteen of them.
+Contract: `onwallz_contract/src/main.nr`. Tests: `onwallz_test/src/lib.nr`, sixteen of them.
 
 ## Running it
 
@@ -121,11 +133,12 @@ The contract address is read from `frontend/public/contract.json` at boot, so a 
 
 ## Status
 
-Testnet. The wall model, anonymity, ownership notes, long notes, on-chain time, the in-app wallet and the registered-wall search are all live. Private fee juice is built and tested and stays behind the mainnet gate.
+Testnet. The wall model, anonymity, ownership notes, 992-byte notes in tagged logs, on-chain time, the in-app wallet, the loading states, the registered-wall search and Fog verification with green handles are all live. Private fee juice is built and tested and stays behind the mainnet gate.
 
 ## What is not done
 
 - private fees on mainnet, which is the remaining privacy gap
-- handle verification, if first come ever becomes a real problem
-- an indexer, which the log reads will want at real scale
+- Fog verification proves control of a name, not a person; there is no identity check
+- notifications without a server, so activity is only counted while the app is open
+- an indexer, which the wall registry will want at real scale
 - profiles, moderation, and every other thing a wall cannot do yet

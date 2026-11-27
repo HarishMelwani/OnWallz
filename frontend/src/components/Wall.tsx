@@ -206,7 +206,7 @@ export function Wall({
       <div className="wall-head">
         <Sigil seed={`page:${handle}`} size={52} />
         <div className="who grow">
-          <h2 className={handleVerified ? "verified-name" : undefined}>{page.display}</h2>
+          <h2>{page.display}</h2>
           <div className="row" style={{ marginTop: 4 }}>
             <span className={`handle${handleVerified ? " verified" : ""}`}>{handle}</span>
             <span className="chip">

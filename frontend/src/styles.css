@@ -968,4 +968,3 @@ body { overflow-x: clip; }
 .handle.verified { background: transparent; font-weight: 600; }
 .at-title.verified { background: transparent; }
 
-.verified-name { color: var(--good, #178a4c); }
